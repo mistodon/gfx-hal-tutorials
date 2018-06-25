@@ -32,19 +32,31 @@ fn main() {
 
     // Initialize our long-lived graphics state.
     // We expect these to live for the whole duration of our program.
+
+    // The Instance serves as an entry point to the graphics API. The create method
+    // takes an application name and version - but these aren't important.
     let instance = backend::Instance::create("Part 00: Triangle", 1);
 
+    // The surface is an abstraction for the OS's native window.
     let mut surface = instance.create_surface(&window);
 
+    // An adapter represents a physical device - such as a graphics card.
+    // We're just taking the first one available, but you could choose one here.
     let mut adapter = instance.enumerate_adapters().remove(0);
 
+    // The device is a logical device allowing you to perform GPU operations.
+    // The queue group TODO: ???
     let (device, mut queue_group) = adapter
         .open_with::<_, Graphics>(1, |family| surface.supports_queue_family(family))
         .unwrap();
 
+    // A command pool is used to acquire command buffers - which are used to
+    // send drawing instructions to the GPU.
     let mut command_pool =
         device.create_command_pool_typed(&queue_group, CommandPoolCreateFlags::empty(), 16);
 
+    // Shader modules are needed later to create a pipeline definition.
+    // The shader is loaded from SPIR-V binary files.
     let vertex_shader_module = {
         let spirv = include_bytes!("../../assets/gen/shaders/part00.vert.spv");
         device.create_shader_module(spirv).unwrap()
@@ -55,6 +67,7 @@ fn main() {
         device.create_shader_module(spirv).unwrap()
     };
 
+    // TODO: What are these for specifically? Waiting for frame boundaries?
     let mut frame_semaphore = device.create_semaphore();
     let mut frame_fence = device.create_fence(false);
 
@@ -87,6 +100,9 @@ fn main() {
         depth: 0.0..1.0,
     };
 
+    // A swapchain is effectively a chain of images (commonly two) that will be
+    // displayed to the screen. While one is being displayed, we can draw to one
+    // of the others.
     let (mut swapchain, backbuffer) = {
         let extent = {
             let (width, height) = window_size;
@@ -100,6 +116,11 @@ fn main() {
         device.create_swapchain(&mut surface, swap_config, None, &extent)
     };
 
+    // TODO: ?
+    // A render pass defines which attachments (images? surfaces?) are to be used
+    // for what purposes. Right now, we only have a color attachment, for the screen
+    // but eventually we might have depth/stencil attachments, or even other color
+    // attachments for other purposes.
     let render_pass = {
         let color_attachment = Attachment {
             format: Some(surface_color_format),
@@ -109,6 +130,7 @@ fn main() {
             layouts: Layout::Undefined..Layout::Present,
         };
 
+        // A render pass could have multiple subpasses - but we're using one for now.
         let subpass = SubpassDesc {
             colors: &[(0, Layout::ColorAttachmentOptimal)],
             depth_stencil: None,
@@ -117,6 +139,7 @@ fn main() {
             preserves: &[],
         };
 
+        // TODO: what?
         let dependency = SubpassDependency {
             passes: SubpassRef::External..SubpassRef::Pass(0),
             stages: PipelineStage::COLOR_ATTACHMENT_OUTPUT..PipelineStage::COLOR_ATTACHMENT_OUTPUT,
@@ -124,9 +147,11 @@ fn main() {
                 ..(Access::COLOR_ATTACHMENT_READ | Access::COLOR_ATTACHMENT_WRITE),
         };
 
+        // TODO: Can you have zero subpasses?
         device.create_render_pass(&[color_attachment], &[subpass], &[dependency])
     };
 
+    // TODO: Framebuffers? Frame images? Image views?
     let (frame_images, framebuffers) = match backbuffer {
         Backbuffer::Images(images) => {
             let (width, height) = window_size;
@@ -169,11 +194,16 @@ fn main() {
 
             (image_view_pairs, fbos)
         }
+        // TODO: Why are there two variants here?
         Backbuffer::Framebuffer(fbo) => (Vec::new(), vec![fbo]),
     };
 
+    // TODO: Layout?
     let pipeline_layout = device.create_pipeline_layout(&[], &[]);
 
+    // A pipeline object encodes almost all the state you need in order to draw
+    // geometry on screen. For now that's really only which shaders to use, what
+    // kind of blending to do, and what kind of primitives to draw.
     let pipeline = {
         let vs_entry = EntryPoint::<backend::Backend> {
             entry: "main",
@@ -246,17 +276,26 @@ fn main() {
         device.reset_fence(&frame_fence);
         command_pool.reset();
 
+        // A swapchain contains multiple images - which one should we draw on?
         let frame_index: SwapImageIndex = swapchain
             .acquire_image(FrameSync::Semaphore(&mut frame_semaphore))
             .expect("Failed to acquire frame");
 
+        // We have to build a command buffer before we send it off to draw.
+        // We don't technically have to do this every frame, but if it needs to
+        // change every frame, then we do.
         let finished_command_buffer = {
             let mut command_buffer = command_pool.acquire_command_buffer(false);
+
+            // Define a rectangle on screen to draw into.
             command_buffer.set_viewports(0, &[viewport.clone()]);
             command_buffer.set_scissors(0, &[viewport.rect]);
+
+            // Choose a pipeline to use.
             command_buffer.bind_graphics_pipeline(&pipeline);
 
             {
+                // Clear the screen and begin the render pass.
                 let mut encoder = command_buffer.begin_render_pass_inline(
                     &render_pass,
                     &framebuffers[frame_index as usize],
@@ -264,20 +303,33 @@ fn main() {
                     &[ClearValue::Color(ClearColor::Float([0.0, 0.0, 0.0, 1.0]))],
                 );
 
+                // Draw some geometry! In this case 0..3 means that we're drawing
+                // the range of vertices from 0 to 3. We have no vertex buffer so
+                // this really just tells our shader to draw one triangle.
+                //
+                // The 0..1 is the range of instances to draw. It's not relevant
+                // unless you're using instanced rendering.
                 encoder.draw(0..3, 0..1);
             }
 
+            // Finish building the command buffer - it's now ready to send to the
+            // GPU.
             command_buffer.finish()
         };
 
+        // This is what submits the command buffer.
         let submission = Submission::new()
             .wait_on(&[(&frame_semaphore, PipelineStage::BOTTOM_OF_PIPE)])
             .submit(Some(finished_command_buffer));
 
+        // TODO: Queue?
         queue_group.queues[0].submit(submission, Some(&mut frame_fence));
 
+        // TODO: What is this?
         device.wait_for_fence(&frame_fence, !0);
 
+        // We just rendered to an image. Present that image on screen, and return
+        // the old one to the swapchain.
         swapchain
             .present(&mut queue_group.queues[0], frame_index, &[])
             .expect("Present failed");
