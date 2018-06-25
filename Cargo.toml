@@ -1,0 +1,18 @@
+[package]
+name = "gfx-hal-demos"
+version = "0.1.0"
+authors = ["***Realname*** ***Lastname*** <***redacted.email@redacted.nope***>"]
+
+[dependencies]
+winit = "=0.15.1"
+
+[dependencies.gfx-hal]
+git = "https://github.com/gfx-rs/gfx"
+rev = "3d7d45c3"
+
+[dependencies.gfx-backend-metal]
+git = "https://github.com/gfx-rs/gfx"
+rev = "3d7d45c3"
+
+[build-dependencies]
+glsl-to-spirv = "=0.1.5"
