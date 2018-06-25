@@ -116,9 +116,8 @@ fn main() {
         device.create_swapchain(&mut surface, swap_config, None, &extent)
     };
 
-    // TODO: ?
-    // A render pass defines which attachments (images? surfaces?) are to be used
-    // for what purposes. Right now, we only have a color attachment, for the screen
+    // A render pass defines which attachments (images) are to be used for what
+    // purposes. Right now, we only have a color attachment for the final output,
     // but eventually we might have depth/stencil attachments, or even other color
     // attachments for other purposes.
     let render_pass = {
@@ -198,7 +197,9 @@ fn main() {
         Backbuffer::Framebuffer(fbo) => (Vec::new(), vec![fbo]),
     };
 
-    // TODO: Layout?
+    // The pipeline layout defines the shape of the data you can send to a shader.
+    // This includes the number of uniforms and push constants. We don't need them
+    // for now.
     let pipeline_layout = device.create_pipeline_layout(&[], &[]);
 
     // A pipeline object encodes almost all the state you need in order to draw
