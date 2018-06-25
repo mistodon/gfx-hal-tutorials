@@ -25,7 +25,7 @@ fn main() {
     let mut events_loop = EventsLoop::new();
 
     let window = WindowBuilder::new()
-        .with_title("Superior")
+        .with_title("Part 00: Triangle")
         .with_dimensions(512, 512)
         .build(&events_loop)
         .unwrap();
