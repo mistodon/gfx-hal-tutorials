@@ -1,62 +1,36 @@
+extern crate gfx_hal_demos;
+
 extern crate gfx_backend_metal as backend;
 extern crate gfx_hal;
 extern crate winit;
 
-use gfx_hal::{
-    command::{ClearColor, ClearValue}, format::{Aspects, ChannelType, Format, Swizzle},
-    image::{self, Access, Extent, Layout, SubresourceRange, ViewKind},
-    pass::{
-        Attachment, AttachmentLoadOp, AttachmentOps, AttachmentStoreOp, Subpass, SubpassDependency,
-        SubpassDesc, SubpassRef,
-    },
-    pool::CommandPoolCreateFlags,
-    pso::{
-        BlendState, ColorBlendDesc, ColorMask, EntryPoint, GraphicsPipelineDesc, GraphicsShaderSet,
-        PipelineStage, Rasterizer, Rect, Viewport,
-    },
-    queue::Submission, window::Extent2D, Backbuffer, Device, FrameSync, Graphics, Instance,
-    Primitive, Surface, SwapImageIndex, Swapchain, SwapchainConfig,
-};
+// Saves us from having to import gfx types every time.
+use gfx_hal_demos::prelude::*;
 
 use winit::{Event, EventsLoop, KeyboardInput, VirtualKeyCode, WindowBuilder, WindowEvent};
 
 fn main() {
-    // Create a window with winit.
     let mut events_loop = EventsLoop::new();
 
     let window = WindowBuilder::new()
-        .with_title("Part 00: Triangle")
+        .with_title("Part 01: Resizing")
         .with_dimensions(256, 256)
         .build(&events_loop)
         .unwrap();
 
-    // Initialize our long-lived graphics state.
-    // We expect these to live for the whole duration of our program.
+    let instance = backend::Instance::create("Part 01: Resizing", 1);
 
-    // The Instance serves as an entry point to the graphics API. The create method
-    // takes an application name and version - but these aren't important.
-    let instance = backend::Instance::create("Part 00: Triangle", 1);
-
-    // The surface is an abstraction for the OS's native window.
     let mut surface = instance.create_surface(&window);
 
-    // An adapter represents a physical device - such as a graphics card.
-    // We're just taking the first one available, but you could choose one here.
     let mut adapter = instance.enumerate_adapters().remove(0);
 
-    // The device is a logical device allowing you to perform GPU operations.
-    // The queue group TODO: ???
     let (device, mut queue_group) = adapter
         .open_with::<_, Graphics>(1, |family| surface.supports_queue_family(family))
         .unwrap();
 
-    // A command pool is used to acquire command buffers - which are used to
-    // send drawing instructions to the GPU.
     let mut command_pool =
         device.create_command_pool_typed(&queue_group, CommandPoolCreateFlags::empty(), 16);
 
-    // Shader modules are needed later to create a pipeline definition.
-    // The shader is loaded from SPIR-V binary files.
     let vertex_shader_module = {
         let spirv = include_bytes!("../../assets/gen/shaders/part00.vert.spv");
         device.create_shader_module(spirv).unwrap()
@@ -67,10 +41,12 @@ fn main() {
         device.create_shader_module(spirv).unwrap()
     };
 
-    // TODO: What are these for specifically? Waiting for frame boundaries?
     let mut frame_semaphore = device.create_semaphore();
     let mut frame_fence = device.create_fence(false);
 
+    // This could theoretically change between swapchain creations, but we're going
+    // to ignore that for now so that we only have to build our render pass and
+    // pipeline once.
     let surface_color_format = {
         let physical_device = &adapter.physical_device;
         let (_, formats, _) = surface.compatibility(physical_device);
@@ -86,10 +62,6 @@ fn main() {
         format
     };
 
-    // A render pass defines which attachments (images) are to be used for what
-    // purposes. Right now, we only have a color attachment for the final output,
-    // but eventually we might have depth/stencil attachments, or even other color
-    // attachments for other purposes.
     let render_pass = {
         let color_attachment = Attachment {
             format: Some(surface_color_format),
@@ -99,7 +71,6 @@ fn main() {
             layouts: Layout::Undefined..Layout::Present,
         };
 
-        // A render pass could have multiple subpasses - but we're using one for now.
         let subpass = SubpassDesc {
             colors: &[(0, Layout::ColorAttachmentOptimal)],
             depth_stencil: None,
@@ -108,7 +79,6 @@ fn main() {
             preserves: &[],
         };
 
-        // TODO: what?
         let dependency = SubpassDependency {
             passes: SubpassRef::External..SubpassRef::Pass(0),
             stages: PipelineStage::COLOR_ATTACHMENT_OUTPUT..PipelineStage::COLOR_ATTACHMENT_OUTPUT,
@@ -116,18 +86,11 @@ fn main() {
                 ..(Access::COLOR_ATTACHMENT_READ | Access::COLOR_ATTACHMENT_WRITE),
         };
 
-        // TODO: Can you have zero subpasses?
         device.create_render_pass(&[color_attachment], &[subpass], &[dependency])
     };
 
-    // The pipeline layout defines the shape of the data you can send to a shader.
-    // This includes the number of uniforms and push constants. We don't need them
-    // for now.
     let pipeline_layout = device.create_pipeline_layout(&[], &[]);
 
-    // A pipeline object encodes almost all the state you need in order to draw
-    // geometry on screen. For now that's really only which shaders to use, what
-    // kind of blending to do, and what kind of primitives to draw.
     let pipeline = {
         let vs_entry = EntryPoint::<backend::Backend> {
             entry: "main",
@@ -170,79 +133,17 @@ fn main() {
         device.create_graphics_pipeline(&pipeline_desc).unwrap()
     };
 
-    // Initialize our swapchain, images, framebuffers, etc.
-    // We expect to have to rebuild these when the window is resized -
-    // however we're going to ignore that for this example.
-    let window_size = window.get_inner_size().unwrap();
+    // We're going to defer the construction of our swapchain, frame images, and
+    // framebuffers until the mainloop, because we will need to repeat it whenever
+    // the window resizes.
+    //
+    // For now we leave them empty.
+    let mut swapchain_stuff: Option<(_, _, _)> = None;
 
-    // A swapchain is effectively a chain of images (commonly two) that will be
-    // displayed to the screen. While one is being displayed, we can draw to one
-    // of the others.
-    let (mut swapchain, backbuffer) = {
-        let extent = {
-            let (width, height) = window_size;
-            Extent2D { width, height }
-        };
-
-        let swap_config = SwapchainConfig::new()
-            .with_color(surface_color_format)
-            .with_image_usage(image::Usage::COLOR_ATTACHMENT);
-
-        device.create_swapchain(&mut surface, swap_config, None, &extent)
-    };
-
-    // TODO: Framebuffers? Frame images? Image views?
-    let (frame_images, framebuffers) = match backbuffer {
-        Backbuffer::Images(images) => {
-            let (width, height) = window_size;
-            let extent = Extent {
-                width: width,
-                height: height,
-                depth: 1,
-            };
-
-            let color_range = SubresourceRange {
-                aspects: Aspects::COLOR,
-                levels: 0..1,
-                layers: 0..1,
-            };
-
-            let image_view_pairs = images
-                .into_iter()
-                .map(|image| {
-                    let image_view = device
-                        .create_image_view(
-                            &image,
-                            ViewKind::D2,
-                            surface_color_format,
-                            Swizzle::NO,
-                            color_range.clone(),
-                        )
-                        .unwrap();
-                    (image, image_view)
-                })
-                .collect::<Vec<_>>();
-
-            let fbos = image_view_pairs
-                .iter()
-                .map(|&(_, ref image_view)| {
-                    device
-                        .create_framebuffer(&render_pass, Some(image_view), extent)
-                        .unwrap()
-                })
-                .collect();
-
-            (image_view_pairs, fbos)
-        }
-        // TODO: Why are there two variants here?
-        Backbuffer::Framebuffer(fbo) => (Vec::new(), vec![fbo]),
-    };
-
-    // Mainloop starts here
     loop {
         let mut quitting = false;
+        let mut resizing = false;
 
-        // If the window is closed, or Escape is pressed, quit
         events_loop.poll_events(|event| {
             if let Event::WindowEvent { event, .. } = event {
                 match event {
@@ -255,32 +156,130 @@ fn main() {
                             },
                         ..
                     } => quitting = true,
+
+                    // We need to recreate our swapchain if we resize, so track it.
+                    WindowEvent::Resized(_, _) => {
+                        resizing = true;
+                    }
+
                     _ => {}
                 }
             }
         });
 
+        // We need to destroy things if we're resizing - because we'll recreate them
+        // or if quitting - because we want them destroyed for good.
+        if (resizing || quitting) && swapchain_stuff.is_some() {
+            // Take ownership over the old stuff so we can destroy it.
+            // The value of swapchain_stuff is now `None`.
+            let (swapchain, frame_images, framebuffers) = swapchain_stuff.take().unwrap();
+
+            // TODO: why we gotta do this?
+            device.wait_idle().unwrap();
+            command_pool.reset();
+
+            // Destroy all the old stuff.
+            for framebuffer in framebuffers {
+                device.destroy_framebuffer(framebuffer);
+            }
+
+            for (_, image_view) in frame_images {
+                device.destroy_image_view(image_view);
+            }
+            device.destroy_swapchain(swapchain);
+        }
+
         if quitting {
             break;
         }
 
-        // Start rendering
+        // If we don't have a swapchain here, we destroyed it and we need to
+        // recreate it.
+        if swapchain_stuff.is_none() {
+            // On the currently tested version of gfx-hal, you need to recreate
+            // the surface. I'm unsure if this is a bug or not.
+            surface = instance.create_surface(&window);
+
+            // Here we just create the swapchain, frame images, and framebuffers
+            // like we did in part 00, and store them in swapchain_stuff.
+            let window_size = window.get_inner_size().unwrap();
+
+            let (swapchain, backbuffer) = {
+                let extent = {
+                    let (width, height) = window_size;
+                    Extent2D { width, height }
+                };
+
+                let swap_config = SwapchainConfig::new()
+                    .with_color(surface_color_format)
+                    .with_image_usage(image::Usage::COLOR_ATTACHMENT);
+
+                device.create_swapchain(&mut surface, swap_config, None, &extent)
+            };
+
+            let (frame_images, framebuffers) = match backbuffer {
+                Backbuffer::Images(images) => {
+                    let (width, height) = window_size;
+                    let extent = Extent {
+                        width: width,
+                        height: height,
+                        depth: 1,
+                    };
+
+                    let color_range = SubresourceRange {
+                        aspects: Aspects::COLOR,
+                        levels: 0..1,
+                        layers: 0..1,
+                    };
+
+                    let image_view_pairs = images
+                        .into_iter()
+                        .map(|image| {
+                            let image_view = device
+                                .create_image_view(
+                                    &image,
+                                    ViewKind::D2,
+                                    surface_color_format,
+                                    Swizzle::NO,
+                                    color_range.clone(),
+                                )
+                                .unwrap();
+                            (image, image_view)
+                        })
+                        .collect::<Vec<_>>();
+
+                    let fbos = image_view_pairs
+                        .iter()
+                        .map(|&(_, ref image_view)| {
+                            device
+                                .create_framebuffer(&render_pass, Some(image_view), extent)
+                                .unwrap()
+                        })
+                        .collect();
+
+                    (image_view_pairs, fbos)
+                }
+                Backbuffer::Framebuffer(fbo) => (Vec::new(), vec![fbo]),
+            };
+
+            // Store the new stuff.
+            swapchain_stuff = Some((swapchain, frame_images, framebuffers));
+        }
+
+        // To access the swapchain, we need to get a mutable reference to the
+        // contents of swapchain_stuff.
+        let (swapchain, _frame_images, framebuffers) = swapchain_stuff.as_mut().unwrap();
+
         device.reset_fence(&frame_fence);
         command_pool.reset();
 
-        // A swapchain contains multiple images - which one should we draw on?
         let frame_index: SwapImageIndex = swapchain
             .acquire_image(FrameSync::Semaphore(&mut frame_semaphore))
             .expect("Failed to acquire frame");
 
-        // We have to build a command buffer before we send it off to draw.
-        // We don't technically have to do this every frame, but if it needs to
-        // change every frame, then we do.
         let finished_command_buffer = {
             let mut command_buffer = command_pool.acquire_command_buffer(false);
 
-            // Define a rectangle on screen to draw into.
-            // In this case, the whole screen.
             let (width, height) = window.get_inner_size().unwrap();
             let viewport = Viewport {
                 rect: Rect {
@@ -295,11 +294,9 @@ fn main() {
             command_buffer.set_viewports(0, &[viewport.clone()]);
             command_buffer.set_scissors(0, &[viewport.rect]);
 
-            // Choose a pipeline to use.
             command_buffer.bind_graphics_pipeline(&pipeline);
 
             {
-                // Clear the screen and begin the render pass.
                 let mut encoder = command_buffer.begin_render_pass_inline(
                     &render_pass,
                     &framebuffers[frame_index as usize],
@@ -307,53 +304,32 @@ fn main() {
                     &[ClearValue::Color(ClearColor::Float([0.0, 0.0, 0.0, 1.0]))],
                 );
 
-                // Draw some geometry! In this case 0..3 means that we're drawing
-                // the range of vertices from 0 to 3. We have no vertex buffer so
-                // this really just tells our shader to draw one triangle.
-                //
-                // The 0..1 is the range of instances to draw. It's not relevant
-                // unless you're using instanced rendering.
                 encoder.draw(0..3, 0..1);
             }
 
-            // Finish building the command buffer - it's now ready to send to the
-            // GPU.
             command_buffer.finish()
         };
 
-        // This is what submits the command buffer.
         let submission = Submission::new()
             .wait_on(&[(&frame_semaphore, PipelineStage::BOTTOM_OF_PIPE)])
             .submit(Some(finished_command_buffer));
 
-        // TODO: Queue?
         queue_group.queues[0].submit(submission, Some(&mut frame_fence));
 
-        // TODO: What is this?
         device.wait_for_fence(&frame_fence, !0);
 
-        // We just rendered to an image. Present that image on screen, and return
-        // the old one to the swapchain.
         swapchain
             .present(&mut queue_group.queues[0], frame_index, &[])
             .expect("Present failed");
     }
 
     // Cleanup
+    // Note that we don't have to destroy the swapchain, frame images, or
+    // framebuffers, because they will already have been destroyed before breaking
+    // out of the mainloop.
     device.destroy_graphics_pipeline(pipeline);
     device.destroy_pipeline_layout(pipeline_layout);
-
-    for framebuffer in framebuffers {
-        device.destroy_framebuffer(framebuffer);
-    }
-
-    for (_, image_view) in frame_images {
-        device.destroy_image_view(image_view);
-    }
-
     device.destroy_render_pass(render_pass);
-    device.destroy_swapchain(swapchain);
-
     device.destroy_shader_module(vertex_shader_module);
     device.destroy_shader_module(fragment_shader_module);
     device.destroy_command_pool(command_pool.into_raw());
