@@ -77,7 +77,7 @@ fn main() {
 
         let format = match formats {
             None => Format::Rgba8Srgb,
-            Some(options) => options
+            Some(choices) => choices
                 .into_iter()
                 .find(|format| format.base_format().1 == ChannelType::Srgb)
                 .unwrap(),
@@ -178,6 +178,8 @@ fn main() {
     // A swapchain is effectively a chain of images (commonly two) that will be
     // displayed to the screen. While one is being displayed, we can draw to one
     // of the others.
+    //
+    // TODO: Backbuffer?
     let (mut swapchain, backbuffer) = {
         let extent = {
             let (width, height) = window_size;
@@ -191,7 +193,21 @@ fn main() {
         device.create_swapchain(&mut surface, swap_config, None, &extent)
     };
 
-    // TODO: Framebuffers? Frame images? Image views?
+    // The frame_images below is actually an array of pairs, (image, image_view).
+    // One for each image in the backbuffer.
+    //
+    // You can think of an image as just the raw binary of the literal image, with
+    // additional metadata about the format.
+    //
+    // Accessing the image must be done through an image view - which is more or
+    // less a sub-range of the base image. For example, it could be one 2D slice of
+    // a 3D texture. In many cases, the view will just be of the whole image. You
+    // can also use an image view to swizzle or reinterpret the image format, but
+    // we don't need to do any of this right now.
+    //
+    // Framebuffers bind certain image views to certain attachments. So for example,
+    // if your render pass requires one color, and one depth, attachment - the
+    // framebuffer chooses specific image views for each one.
     let (frame_images, framebuffers) = match backbuffer {
         Backbuffer::Images(images) => {
             let (width, height) = window_size;
@@ -227,7 +243,7 @@ fn main() {
                 .iter()
                 .map(|&(_, ref image_view)| {
                     device
-                        .create_framebuffer(&render_pass, Some(image_view), extent)
+                        .create_framebuffer(&render_pass, vec![image_view], extent)
                         .unwrap()
                 })
                 .collect();
@@ -324,7 +340,7 @@ fn main() {
         // This is what submits the command buffer.
         let submission = Submission::new()
             .wait_on(&[(&frame_semaphore, PipelineStage::BOTTOM_OF_PIPE)])
-            .submit(Some(finished_command_buffer));
+            .submit(vec![finished_command_buffer]);
 
         // TODO: Queue?
         queue_group.queues[0].submit(submission, Some(&mut frame_fence));
