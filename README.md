@@ -1,10 +1,10 @@
-# gfx-hal demos
+# gfx-hal tutorials
 
-This repo will contain a series of self-contained gfx-hal examples, hopefully to make it easier to grok how each feature of the API works individually. I'm still learning myself, so they won't be perfect, but hopefully they'll be useful to somebody.
+This repo will contain a series of self-contained gfx-hal tutorials, hopefully to make it easier to grok how each feature of the API works individually. I'm still learning myself, so they won't be perfect, but hopefully they'll be useful to somebody.
 
-These examples all currently use the Metal backend, and so will only run on macOS devices. However, you should be able to quite easily swap out the backend on other platforms. In future, I'll make some modifications to allow them to be cross-platform.
+These tutorials all currently use the Metal backend, and so will only run on macOS devices. However, you should be able to quite easily swap out the backend on other platforms. In future, I'll make some modifications to allow them to be cross-platform.
 
-## Running examples
+## Running tutorials
 
 - `cargo run --bin part00-triangle`
 - `cargo run --bin part01-resizing`

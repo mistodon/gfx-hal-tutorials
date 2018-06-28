@@ -1,11 +1,11 @@
-extern crate gfx_hal_demos;
+extern crate gfx_hal_tutorials;
 
 extern crate gfx_backend_metal as backend;
 extern crate gfx_hal;
 extern crate winit;
 
 // Saves us from having to import gfx types every time.
-use gfx_hal_demos::prelude::*;
+use gfx_hal_tutorials::prelude::*;
 
 use winit::{Event, EventsLoop, KeyboardInput, VirtualKeyCode, WindowBuilder, WindowEvent};
 
