@@ -47,14 +47,21 @@ fn main() {
     // The device is a logical device allowing you to perform GPU operations.
     // The queue group contains a set of command queues which we can later submit
     // drawing commands to.
+    //
+    // Here we're requesting 1 queue, with the `Graphics` capability so we can do
+    // rendering. We also pass a closure to choose the first queue family that our
+    // surface supports to allocate queues from. More on queue families in a later
+    // tutorial.
+    let num_queues = 1;
     let (device, mut queue_group) = adapter
-        .open_with::<_, Graphics>(1, |family| surface.supports_queue_family(family))
+        .open_with::<_, Graphics>(num_queues, |family| surface.supports_queue_family(family))
         .unwrap();
 
     // A command pool is used to acquire command buffers - which are used to
     // send drawing instructions to the GPU.
+    let max_buffers = 16;
     let mut command_pool =
-        device.create_command_pool_typed(&queue_group, CommandPoolCreateFlags::empty(), 16);
+        device.create_command_pool_typed(&queue_group, CommandPoolCreateFlags::empty(), max_buffers);
 
     // Shader modules are needed later to create a pipeline definition.
     // The shader is loaded from SPIR-V binary files.
@@ -80,12 +87,14 @@ fn main() {
         let physical_device = &adapter.physical_device;
         let (_, formats, _) = surface.compatibility(physical_device);
 
+        // We must pick a color format from the list of supported formats. If there
+        // is no list, we default to Rgba8Srgb.
         let format = match formats {
-            None => Format::Rgba8Srgb,
             Some(choices) => choices
                 .into_iter()
                 .find(|format| format.base_format().1 == ChannelType::Srgb)
                 .unwrap(),
+            None => Format::Rgba8Srgb,
         };
 
         format
@@ -337,7 +346,9 @@ fn main() {
 
                 // Draw some geometry! In this case 0..3 means that we're drawing
                 // the range of vertices from 0 to 3. We have no vertex buffer so
-                // this really just tells our shader to draw one triangle.
+                // this really just tells our shader to draw one triangle. The
+                // specific vertices to draw are encoded in the vertex shader which
+                // you can see in `source_assets/shaders/part00.vert`.
                 //
                 // The 0..1 is the range of instances to draw. It's not relevant
                 // unless you're using instanced rendering.
@@ -363,7 +374,7 @@ fn main() {
         // We first wait for the rendering to complete...
         device.wait_for_fence(&frame_fence, !0);
 
-        // ...and then present the image on screen.
+        // ...and then present the image on screen!
         swapchain
             .present(&mut queue_group.queues[0], frame_index, &[])
             .expect("Present failed");
