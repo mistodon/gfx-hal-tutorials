@@ -184,7 +184,9 @@ fn main() {
     // displayed to the screen. While one is being displayed, we can draw to one
     // of the others.
     //
-    // TODO: Backbuffer?
+    // In a rare instance of the API creating resources for you, the backbuffer
+    // contains the actual images that make up the swapchain. We'll create image
+    // views and framebuffers from these next.
     let (mut swapchain, backbuffer) = {
         let extent = {
             let (width, height) = window_size;
@@ -255,7 +257,10 @@ fn main() {
 
             (image_view_pairs, fbos)
         }
-        // TODO: Why are there two variants here?
+
+        // This arm of the branch is currently only used by the OpenGL backend,
+        // which supplies an opaque framebuffer for you instead of giving you control
+        // over individual images.
         Backbuffer::Framebuffer(fbo) => (Vec::new(), vec![fbo]),
     };
 
