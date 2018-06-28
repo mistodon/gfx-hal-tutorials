@@ -45,7 +45,8 @@ fn main() {
     let mut adapter = instance.enumerate_adapters().remove(0);
 
     // The device is a logical device allowing you to perform GPU operations.
-    // The queue group TODO: ???
+    // The queue group contains a set of command queues which we can later submit
+    // drawing commands to.
     let (device, mut queue_group) = adapter
         .open_with::<_, Graphics>(1, |family| surface.supports_queue_family(family))
         .unwrap();
@@ -67,7 +68,11 @@ fn main() {
         device.create_shader_module(spirv).unwrap()
     };
 
-    // TODO: What are these for specifically? Waiting for frame boundaries?
+    // The frame semaphore is used to allow us to wait for an image to be ready
+    // before attempting to draw on it,
+    //
+    // The frame fence is used to to allow us to wait until our draw commands have
+    // finished before attempting to display the image.
     let mut frame_semaphore = device.create_semaphore();
     let mut frame_fence = device.create_fence(false);
 
@@ -284,7 +289,9 @@ fn main() {
         device.reset_fence(&frame_fence);
         command_pool.reset();
 
-        // A swapchain contains multiple images - which one should we draw on?
+        // A swapchain contains multiple images - which one should we draw on? This
+        // doesn't return a valid image as such, but will signal frame_semaphore
+        // when the image is available.
         let frame_index: SwapImageIndex = swapchain
             .acquire_image(FrameSync::Semaphore(&mut frame_semaphore))
             .expect("Failed to acquire frame");
@@ -337,19 +344,21 @@ fn main() {
             command_buffer.finish()
         };
 
-        // This is what submits the command buffer.
+        // This is what we submit to the command queue. We wait until frame_semaphore
+        // is signalled, at which point we know our chosen image is available to draw
+        // on.
         let submission = Submission::new()
             .wait_on(&[(&frame_semaphore, PipelineStage::BOTTOM_OF_PIPE)])
             .submit(vec![finished_command_buffer]);
 
-        // TODO: Queue?
+        // We submit the submission to one of our command queues, which will signal
+        // frame_fence once rendering is completed.
         queue_group.queues[0].submit(submission, Some(&mut frame_fence));
 
-        // TODO: What is this?
+        // We first wait for the rendering to complete...
         device.wait_for_fence(&frame_fence, !0);
 
-        // We just rendered to an image. Present that image on screen, and return
-        // the old one to the swapchain.
+        // ...and then present the image on screen.
         swapchain
             .present(&mut queue_group.queues[0], frame_index, &[])
             .expect("Present failed");
