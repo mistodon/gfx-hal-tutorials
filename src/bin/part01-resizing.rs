@@ -174,7 +174,9 @@ fn main() {
             // The value of swapchain_stuff is now `None`.
             let (swapchain, frame_images, framebuffers) = swapchain_stuff.take().unwrap();
 
-            // TODO: why we gotta do this?
+            // We want to wait for all queues to be idle and reset the command pool,
+            // so that we know that no commands are being executed while we destroy
+            // the swapchain.
             device.wait_idle().unwrap();
             command_pool.reset();
 
