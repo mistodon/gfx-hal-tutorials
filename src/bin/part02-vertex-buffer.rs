@@ -379,7 +379,7 @@ fn main() {
             command_buffer.set_scissors(0, &[viewport.rect]);
 
             command_buffer.bind_graphics_pipeline(&pipeline);
-            command_buffer.bind_vertex_buffers(0, VertexBufferSet(vec![(&vertex_buffer, 0)]));
+            command_buffer.bind_vertex_buffers(0, vec![(&vertex_buffer, 0)]);
 
             {
                 let mut encoder = command_buffer.begin_render_pass_inline(

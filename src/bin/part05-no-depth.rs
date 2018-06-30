@@ -209,8 +209,8 @@ fn main() {
         unshuffled_diamonds[2],
         unshuffled_diamonds[4],
         unshuffled_diamonds[3],
-        unshuffled_diamonds[1],
         unshuffled_diamonds[0],
+        unshuffled_diamonds[1],
     ];
 
     let pipeline = {
@@ -437,7 +437,7 @@ fn main() {
             command_buffer.set_scissors(0, &[viewport.rect]);
 
             command_buffer.bind_graphics_pipeline(&pipeline);
-            command_buffer.bind_vertex_buffers(0, VertexBufferSet(vec![(&vertex_buffer, 0)]));
+            command_buffer.bind_vertex_buffers(0, vec![(&vertex_buffer, 0)]);
 
             command_buffer.bind_graphics_descriptor_sets(&pipeline_layout, 0, vec![&desc_set], &[]);
 
