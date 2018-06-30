@@ -16,9 +16,6 @@ struct UniformBlock {
     projection: [[f32; 4]; 4],
 }
 
-// We need to add another struct now for our push constants. We will have one of
-// these per draw-call, instead of per render-pass.
-// TODO: Reiterate again big warning about layout
 #[derive(Debug, Clone, Copy)]
 struct PushConstants {
     tint: [f32; 4],
@@ -62,12 +59,12 @@ fn main() {
     let mut events_loop = EventsLoop::new();
 
     let window = WindowBuilder::new()
-        .with_title("Part 04: Push constants")
+        .with_title("Part 05: Without depth testing")
         .with_dimensions(256, 256)
         .build(&events_loop)
         .unwrap();
 
-    let instance = backend::Instance::create("Part 04: Push constants", 1);
+    let instance = backend::Instance::create("Part 05: Without depth testing", 1);
 
     let mut surface = instance.create_surface(&window);
 
@@ -80,8 +77,6 @@ fn main() {
     let mut command_pool =
         device.create_command_pool_typed(&queue_group, CommandPoolCreateFlags::empty(), 16);
 
-    // We're using new shaders for this tutorial - check out the source in
-    // source_assets/shaders/part04.*
     let vertex_shader_module = {
         let spirv = include_bytes!("../../assets/gen/shaders/part04.vert.spv");
         device.create_shader_module(spirv).unwrap()
@@ -183,37 +178,39 @@ fn main() {
         device.create_render_pass(&[color_attachment], &[subpass], &[dependency])
     };
 
-    // TODO: Explain size
     let num_push_constants = {
         let size_in_bytes = std::mem::size_of::<PushConstants>();
         let size_of_push_constant = std::mem::size_of::<u32>();
         size_in_bytes / size_of_push_constant
     };
 
-    // TODO: Explain args
     let pipeline_layout = device.create_pipeline_layout(
         vec![&set_layout],
         &[(ShaderStageFlags::VERTEX, 0..(num_push_constants as u32))],
     );
 
     // TODO: Explain
+    let mut unshuffled_diamonds = Vec::with_capacity(5);
+    for i in 0..5 {
+        let i = i as f32;
+        let x = -0.5 + 0.2 * i;
+        let y = -0.8 + 0.4 * i;
+        let depth = 0.1 + 0.1 * i;
+        let brightness = 1.0 - 0.2 * i;
+
+        unshuffled_diamonds.push(PushConstants {
+            position: [x, y, depth],
+            tint: [brightness, brightness, brightness, 1.0],
+        });
+    }
+
+    // TODO: Explain
     let diamonds = vec![
-        PushConstants {
-            position: [-1.0, -1.0, 0.0],
-            tint: [1.0, 0.0, 0.0, 1.0],
-        },
-        PushConstants {
-            position: [1.0, -1.0, 0.0],
-            tint: [0.0, 1.0, 0.0, 1.0],
-        },
-        PushConstants {
-            position: [-1.0, 1.0, 0.0],
-            tint: [0.0, 0.0, 1.0, 1.0],
-        },
-        PushConstants {
-            position: [1.0, 1.0, 0.0],
-            tint: [1.0, 1.0, 1.0, 1.0],
-        },
+        unshuffled_diamonds[2],
+        unshuffled_diamonds[4],
+        unshuffled_diamonds[3],
+        unshuffled_diamonds[1],
+        unshuffled_diamonds[0],
     ];
 
     let pipeline = {
@@ -454,7 +451,6 @@ fn main() {
 
                 let num_vertices = MESH.len() as u32;
 
-                // TODO: Explain this garbage
                 for diamond in &diamonds {
                     let push_constants = {
                         let start_ptr = diamond as *const PushConstants as *const u32;
