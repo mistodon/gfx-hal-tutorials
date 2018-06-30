@@ -178,15 +178,11 @@ fn main() {
         device.create_render_pass(&[color_attachment], &[subpass], &[dependency])
     };
 
-    let num_push_constants = {
-        let size_in_bytes = std::mem::size_of::<PushConstants>();
-        let size_of_push_constant = std::mem::size_of::<u32>();
-        size_in_bytes / size_of_push_constant
-    };
+    let num_push_constants = utils::push_constant_size::<PushConstants>() as u32;
 
     let pipeline_layout = device.create_pipeline_layout(
         vec![&set_layout],
-        &[(ShaderStageFlags::VERTEX, 0..(num_push_constants as u32))],
+        &[(ShaderStageFlags::VERTEX, 0..num_push_constants)],
     );
 
     // TODO: Explain
@@ -452,16 +448,11 @@ fn main() {
                 let num_vertices = MESH.len() as u32;
 
                 for diamond in &diamonds {
-                    let push_constants = {
-                        let start_ptr = diamond as *const PushConstants as *const u32;
-                        unsafe { std::slice::from_raw_parts(start_ptr, num_push_constants) }
-                    };
-
                     encoder.push_graphics_constants(
                         &pipeline_layout,
                         ShaderStageFlags::VERTEX,
                         0,
-                        push_constants,
+                        utils::push_constant_data(diamond),
                     );
 
                     encoder.draw(0..num_vertices, 0..1);
