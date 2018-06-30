@@ -86,8 +86,8 @@ fn main() {
     //
     // The frame fence is used to to allow us to wait until our draw commands have
     // finished before attempting to display the image.
-    let mut frame_semaphore = device.create_semaphore();
-    let mut frame_fence = device.create_fence(false);
+    let frame_semaphore = device.create_semaphore();
+    let frame_fence = device.create_fence(false);
 
     let surface_color_format = {
         let physical_device = &adapter.physical_device;
@@ -95,15 +95,13 @@ fn main() {
 
         // We must pick a color format from the list of supported formats. If there
         // is no list, we default to Rgba8Srgb.
-        let format = match formats {
+        match formats {
             Some(choices) => choices
                 .into_iter()
                 .find(|format| format.base_format().1 == ChannelType::Srgb)
                 .unwrap(),
             None => Format::Rgba8Srgb,
-        };
-
-        format
+        }
     };
 
     // A render pass defines which attachments (images) are to be used for what
@@ -234,8 +232,8 @@ fn main() {
         Backbuffer::Images(images) => {
             let (width, height) = window_size;
             let extent = Extent {
-                width: width,
-                height: height,
+                width,
+                height,
                 depth: 1,
             };
 
@@ -313,7 +311,7 @@ fn main() {
         // doesn't return a valid image as such, but will signal frame_semaphore
         // when the image is available.
         let frame_index: SwapImageIndex = swapchain
-            .acquire_image(FrameSync::Semaphore(&mut frame_semaphore))
+            .acquire_image(FrameSync::Semaphore(&frame_semaphore))
             .expect("Failed to acquire frame");
 
         // We have to build a command buffer before we send it off to draw.
@@ -375,7 +373,7 @@ fn main() {
 
         // We submit the submission to one of our command queues, which will signal
         // frame_fence once rendering is completed.
-        queue_group.queues[0].submit(submission, Some(&mut frame_fence));
+        queue_group.queues[0].submit(submission, Some(&frame_fence));
 
         // We first wait for the rendering to complete...
         device.wait_for_fence(&frame_fence, !0);

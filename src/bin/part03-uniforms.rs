@@ -18,11 +18,9 @@ use winit::{Event, EventsLoop, KeyboardInput, VirtualKeyCode, WindowBuilder, Win
 // Again, we need a struct that we can upload to a uniform buffer.
 // Here we're supplying a 3x3 "projection" matrix, which will just correct for our
 // aspect ratio, as we'll see later.
-//
-// TODO: Urghhhh alignment? fuuuu  repr something maybe...
 #[derive(Debug, Clone, Copy)]
 struct UniformBlock {
-    projection: [[f32; 3]; 3],
+    projection: [[f32; 4]; 4],
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -124,7 +122,12 @@ fn main() {
         Properties::CPU_VISIBLE,
         buffer::Usage::UNIFORM,
         &[UniformBlock {
-            projection: [[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, 1.0]],
+            projection: [
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ],
         }],
     );
 
@@ -143,22 +146,20 @@ fn main() {
         MESH,
     );
 
-    let mut frame_semaphore = device.create_semaphore();
-    let mut frame_fence = device.create_fence(false);
+    let frame_semaphore = device.create_semaphore();
+    let frame_fence = device.create_fence(false);
 
     let surface_color_format = {
         let physical_device = &adapter.physical_device;
         let (_, formats, _) = surface.compatibility(physical_device);
 
-        let format = match formats {
+        match formats {
             None => Format::Rgba8Srgb,
             Some(options) => options
                 .into_iter()
                 .find(|format| format.base_format().1 == ChannelType::Srgb)
                 .unwrap(),
-        };
-
-        format
+        }
     };
 
     let render_pass = {
@@ -324,8 +325,8 @@ fn main() {
                 Backbuffer::Images(images) => {
                     let (width, height) = window_size;
                     let extent = Extent {
-                        width: width,
-                        height: height,
+                        width,
+                        height,
                         depth: 1,
                     };
 
@@ -373,7 +374,12 @@ fn main() {
             &device,
             &mut uniform_memory,
             &[UniformBlock {
-                projection: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+                projection: [
+                    [1.0, 0.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0, 0.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                ],
             }],
         );
 
@@ -383,7 +389,7 @@ fn main() {
         command_pool.reset();
 
         let frame_index: SwapImageIndex = swapchain
-            .acquire_image(FrameSync::Semaphore(&mut frame_semaphore))
+            .acquire_image(FrameSync::Semaphore(&frame_semaphore))
             .expect("Failed to acquire frame");
 
         let finished_command_buffer = {
@@ -407,8 +413,7 @@ fn main() {
             command_buffer.bind_vertex_buffers(0, VertexBufferSet(vec![(&vertex_buffer, 0)]));
 
             // TODO: Explain
-            command_buffer.bind_graphics_descriptor_sets(
-                &pipeline_layout, 0, vec![&desc_set], &[]);
+            command_buffer.bind_graphics_descriptor_sets(&pipeline_layout, 0, vec![&desc_set], &[]);
 
             {
                 let mut encoder = command_buffer.begin_render_pass_inline(
@@ -429,7 +434,7 @@ fn main() {
             .wait_on(&[(&frame_semaphore, PipelineStage::BOTTOM_OF_PIPE)])
             .submit(Some(finished_command_buffer));
 
-        queue_group.queues[0].submit(submission, Some(&mut frame_fence));
+        queue_group.queues[0].submit(submission, Some(&frame_fence));
 
         device.wait_for_fence(&frame_fence, !0);
 

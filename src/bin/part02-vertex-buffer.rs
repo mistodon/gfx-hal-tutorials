@@ -120,22 +120,20 @@ fn main() {
         (buffer, buffer_memory)
     };
 
-    let mut frame_semaphore = device.create_semaphore();
-    let mut frame_fence = device.create_fence(false);
+    let frame_semaphore = device.create_semaphore();
+    let frame_fence = device.create_fence(false);
 
     let surface_color_format = {
         let physical_device = &adapter.physical_device;
         let (_, formats, _) = surface.compatibility(physical_device);
 
-        let format = match formats {
+        match formats {
             None => Format::Rgba8Srgb,
             Some(options) => options
                 .into_iter()
                 .find(|format| format.base_format().1 == ChannelType::Srgb)
                 .unwrap(),
-        };
-
-        format
+        }
     };
 
     let render_pass = {
@@ -309,8 +307,8 @@ fn main() {
                 Backbuffer::Images(images) => {
                     let (width, height) = window_size;
                     let extent = Extent {
-                        width: width,
-                        height: height,
+                        width,
+                        height,
                         depth: 1,
                     };
 
@@ -359,7 +357,7 @@ fn main() {
         command_pool.reset();
 
         let frame_index: SwapImageIndex = swapchain
-            .acquire_image(FrameSync::Semaphore(&mut frame_semaphore))
+            .acquire_image(FrameSync::Semaphore(&frame_semaphore))
             .expect("Failed to acquire frame");
 
         let finished_command_buffer = {
@@ -403,7 +401,7 @@ fn main() {
             .wait_on(&[(&frame_semaphore, PipelineStage::BOTTOM_OF_PIPE)])
             .submit(Some(finished_command_buffer));
 
-        queue_group.queues[0].submit(submission, Some(&mut frame_fence));
+        queue_group.queues[0].submit(submission, Some(&frame_fence));
 
         device.wait_for_fence(&frame_fence, !0);
 
