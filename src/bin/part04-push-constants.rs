@@ -440,7 +440,7 @@ fn main() {
             command_buffer.set_scissors(0, &[viewport.rect]);
 
             command_buffer.bind_graphics_pipeline(&pipeline);
-            command_buffer.bind_vertex_buffers(0, VertexBufferSet(vec![(&vertex_buffer, 0)]));
+            command_buffer.bind_vertex_buffers(0, vec![(&vertex_buffer, 0)]);
 
             command_buffer.bind_graphics_descriptor_sets(&pipeline_layout, 0, vec![&desc_set], &[]);
 
