@@ -6,8 +6,16 @@ These tutorials all currently use the Metal backend, and so will only run on mac
 
 ## Running tutorials
 
+The following parts are finished:
+
 - `cargo run --bin part00-triangle`
+
+The following parts should be considered WIP and are likely to change:
+
 - `cargo run --bin part01-resizing`
+- `cargo run --bin part02-vertex-buffer`
+- `cargo run --bin part03-uniforms`
+- `cargo run --bin part04-push-constants`
 
 ## Shaders
 
