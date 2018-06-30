@@ -1,7 +1,9 @@
 pub use gfx_hal::{
-    buffer, command::{ClearColor, ClearDepthStencil, ClearValue},
+    buffer,
+    command::{ClearColor, ClearDepthStencil, ClearValue},
     format::{Aspects, ChannelType, Format, Swizzle},
-    image::{self, Access, Extent, Layout, SubresourceRange, ViewKind}, memory::Properties,
+    image::{self, Access, Extent, Layout, SubresourceRange, ViewKind},
+    memory::Properties,
     pass::{
         Attachment, AttachmentLoadOp, AttachmentOps, AttachmentStoreOp, Subpass, SubpassDependency,
         SubpassDesc, SubpassRef,
@@ -14,7 +16,8 @@ pub use gfx_hal::{
         PipelineStage, Rasterizer, Rect, ShaderStageFlags, StencilTest, VertexBufferDesc,
         VertexBufferSet, Viewport,
     },
-    queue::Submission, window::Extent2D, Backbuffer, DescriptorPool, Device, FrameSync, Graphics,
-    Instance, MemoryType, PhysicalDevice, Primitive, Surface, SwapImageIndex, Swapchain,
-    SwapchainConfig,
+    queue::Submission,
+    window::Extent2D,
+    Backbuffer, DescriptorPool, Device, FrameSync, Graphics, Instance, MemoryType, PhysicalDevice,
+    Primitive, Surface, SwapImageIndex, Swapchain, SwapchainConfig,
 };

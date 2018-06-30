@@ -3,7 +3,8 @@ extern crate gfx_hal;
 extern crate winit;
 
 use gfx_hal::{
-    command::{ClearColor, ClearValue}, format::{Aspects, ChannelType, Format, Swizzle},
+    command::{ClearColor, ClearValue},
+    format::{Aspects, ChannelType, Format, Swizzle},
     image::{self, Access, Extent, Layout, SubresourceRange, ViewKind},
     pass::{
         Attachment, AttachmentLoadOp, AttachmentOps, AttachmentStoreOp, Subpass, SubpassDependency,
@@ -14,8 +15,10 @@ use gfx_hal::{
         BlendState, ColorBlendDesc, ColorMask, EntryPoint, GraphicsPipelineDesc, GraphicsShaderSet,
         PipelineStage, Rasterizer, Rect, Viewport,
     },
-    queue::Submission, window::Extent2D, Backbuffer, Device, FrameSync, Graphics, Instance,
-    Primitive, Surface, SwapImageIndex, Swapchain, SwapchainConfig,
+    queue::Submission,
+    window::Extent2D,
+    Backbuffer, Device, FrameSync, Graphics, Instance, Primitive, Surface, SwapImageIndex,
+    Swapchain, SwapchainConfig,
 };
 
 use winit::{Event, EventsLoop, KeyboardInput, VirtualKeyCode, WindowBuilder, WindowEvent};
@@ -60,8 +63,11 @@ fn main() {
     // A command pool is used to acquire command buffers - which are used to
     // send drawing instructions to the GPU.
     let max_buffers = 16;
-    let mut command_pool =
-        device.create_command_pool_typed(&queue_group, CommandPoolCreateFlags::empty(), max_buffers);
+    let mut command_pool = device.create_command_pool_typed(
+        &queue_group,
+        CommandPoolCreateFlags::empty(),
+        max_buffers,
+    );
 
     // Shader modules are needed later to create a pipeline definition.
     // The shader is loaded from SPIR-V binary files.
