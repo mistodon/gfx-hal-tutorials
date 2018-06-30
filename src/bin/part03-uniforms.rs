@@ -18,6 +18,7 @@ use winit::{Event, EventsLoop, KeyboardInput, VirtualKeyCode, WindowBuilder, Win
 // Again, we need a struct that we can upload to a uniform buffer.
 // Here we're supplying a 3x3 "projection" matrix, which will just correct for our
 // aspect ratio, as we'll see later.
+// TODO: Repeat big warning about layout.
 #[derive(Debug, Clone, Copy)]
 struct UniformBlock {
     projection: [[f32; 4]; 4],
@@ -365,7 +366,8 @@ fn main() {
             swapchain_stuff = Some((swapchain, frame_images, framebuffers));
         }
 
-        // TODO: Explain
+        // TODO: Explain - in particular that we cannot change this between draw
+        // calls.
         let (width, height) = window.get_inner_size().unwrap();
         let aspect_corrected_x = height as f32 / width as f32;
         let zoom = 0.5;

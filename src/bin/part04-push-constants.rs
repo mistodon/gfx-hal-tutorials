@@ -5,20 +5,32 @@ extern crate gfx_hal;
 extern crate winit;
 
 use gfx_hal_tutorials::prelude::*;
+use gfx_hal_tutorials::utils;
+
+use backend::Backend;
 
 use winit::{Event, EventsLoop, KeyboardInput, VirtualKeyCode, WindowBuilder, WindowEvent};
 
-// To store a mesh in a vertex buffer, we first need a vertex format.
-// We're going to include a 3D vertex position, and a per-vertex color attribute.
-// TODO: Add big warning about layout
+#[derive(Debug, Clone, Copy)]
+struct UniformBlock {
+    projection: [[f32; 4]; 4],
+}
+
+// We need to add another struct now for our push constants. We will have one of
+// these per draw-call, instead of per render-pass.
+// TODO: Reiterate again big warning about layout
+#[derive(Debug, Clone, Copy)]
+struct PushConstants {
+    tint: [f32; 4],
+    position: [f32; 3],
+}
+
 #[derive(Debug, Clone, Copy)]
 struct Vertex {
     position: [f32; 3],
     color: [f32; 4],
 }
 
-// In a sensible application, we would load our mesh from somewhere, but for this
-// example, we'll just store it in a const.
 const MESH: &[Vertex] = &[
     Vertex {
         position: [0.0, -1.0, 0.0],
@@ -50,12 +62,12 @@ fn main() {
     let mut events_loop = EventsLoop::new();
 
     let window = WindowBuilder::new()
-        .with_title("Part 02: Vertex buffers")
+        .with_title("Part 03: Uniforms")
         .with_dimensions(256, 256)
         .build(&events_loop)
         .unwrap();
 
-    let instance = backend::Instance::create("Part 02: Vertex buffers", 1);
+    let instance = backend::Instance::create("Part 03: Uniforms", 1);
 
     let mut surface = instance.create_surface(&window);
 
@@ -69,57 +81,64 @@ fn main() {
         device.create_command_pool_typed(&queue_group, CommandPoolCreateFlags::empty(), 16);
 
     // We're using new shaders for this tutorial - check out the source in
-    // source_assets/shaders/part02.*
+    // source_assets/shaders/part04.*
     let vertex_shader_module = {
-        let spirv = include_bytes!("../../assets/gen/shaders/part02.vert.spv");
+        let spirv = include_bytes!("../../assets/gen/shaders/part04.vert.spv");
         device.create_shader_module(spirv).unwrap()
     };
 
     let fragment_shader_module = {
-        let spirv = include_bytes!("../../assets/gen/shaders/part02.frag.spv");
+        let spirv = include_bytes!("../../assets/gen/shaders/part04.frag.spv");
         device.create_shader_module(spirv).unwrap()
     };
 
-    // TODO: ???
     let memory_types = adapter.physical_device.memory_properties().memory_types;
 
-    // Now lets create a vertex buffer to upload our mesh data into. We'll need both
-    // the buffer, and the memory it's using so we can destroy and deallocate them at
-    // the end.
-    let (vertex_buffer, vertex_buffer_memory) = {
-        // TODO: Explain all of this pish
-        let item_count = MESH.len();
-        let stride = std::mem::size_of::<Vertex>() as u64;
-        let buffer_len = item_count as u64 * stride;
-        let unbound_buffer = device
-            .create_buffer(buffer_len, buffer::Usage::VERTEX)
-            .unwrap();
-        let req = device.get_buffer_requirements(&unbound_buffer);
-        let upload_type = memory_types
-            .iter()
-            .enumerate()
-            .position(|(id, ty)| {
-                req.type_mask & (1 << id) != 0 && ty.properties.contains(Properties::CPU_VISIBLE)
-            })
-            .unwrap()
-            .into();
+    let set_layout = device.create_descriptor_set_layout(
+        &[DescriptorSetLayoutBinding {
+            binding: 0,
+            ty: DescriptorType::UniformBuffer,
+            count: 1,
+            stage_flags: ShaderStageFlags::VERTEX,
+            immutable_samplers: false,
+        }],
+        &[],
+    );
 
-        let buffer_memory = device.allocate_memory(upload_type, req.size).unwrap();
-        let buffer = device
-            .bind_buffer_memory(&buffer_memory, 0, unbound_buffer)
-            .unwrap();
+    let mut desc_pool = device.create_descriptor_pool(
+        1,
+        &[DescriptorRangeDesc {
+            ty: DescriptorType::UniformBuffer,
+            count: 1,
+        }],
+    );
 
-        // Fill the buffer with vertex data
-        {
-            let mut dest = device
-                .acquire_mapping_writer::<Vertex>(&buffer_memory, 0..buffer_len)
-                .unwrap();
-            dest.copy_from_slice(MESH);
-            device.release_mapping_writer(dest);
-        }
+    let desc_set = desc_pool.allocate_set(&set_layout).unwrap();
 
-        (buffer, buffer_memory)
-    };
+    let (uniform_buffer, mut uniform_memory) = utils::create_buffer::<Backend, UniformBlock>(
+        &device,
+        &memory_types,
+        Properties::CPU_VISIBLE,
+        buffer::Usage::UNIFORM,
+        &[UniformBlock {
+            projection: Default::default(),
+        }],
+    );
+
+    device.write_descriptor_sets(vec![DescriptorSetWrite {
+        set: &desc_set,
+        binding: 0,
+        array_offset: 0,
+        descriptors: Some(Descriptor::Buffer(&uniform_buffer, None..None)),
+    }]);
+
+    let (vertex_buffer, vertex_buffer_memory) = utils::create_buffer::<Backend, Vertex>(
+        &device,
+        &memory_types,
+        Properties::CPU_VISIBLE,
+        buffer::Usage::VERTEX,
+        MESH,
+    );
 
     let frame_semaphore = device.create_semaphore();
     let frame_fence = device.create_fence(false);
@@ -164,7 +183,38 @@ fn main() {
         device.create_render_pass(&[color_attachment], &[subpass], &[dependency])
     };
 
-    let pipeline_layout = device.create_pipeline_layout(&[], &[]);
+    // TODO: Explain size
+    let num_push_constants = {
+        let size_in_bytes = std::mem::size_of::<PushConstants>();
+        let size_of_push_constant = std::mem::size_of::<u32>();
+        size_in_bytes / size_of_push_constant
+    };
+
+    // TODO: Explain args
+    let pipeline_layout = device.create_pipeline_layout(
+        vec![&set_layout],
+        &[(ShaderStageFlags::VERTEX, 0..(num_push_constants as u32))],
+    );
+
+    // TODO: Explain
+    let diamonds = vec![
+        PushConstants {
+            position: [-1.0, -1.0, 0.0],
+            tint: [1.0, 0.0, 0.0, 1.0],
+        },
+        PushConstants {
+            position: [1.0, -1.0, 0.0],
+            tint: [0.0, 1.0, 0.0, 1.0],
+        },
+        PushConstants {
+            position: [-1.0, 1.0, 0.0],
+            tint: [0.0, 0.0, 1.0, 1.0],
+        },
+        PushConstants {
+            position: [1.0, 1.0, 0.0],
+            tint: [1.0, 1.0, 1.0, 1.0],
+        },
+    ];
 
     let pipeline = {
         let vs_entry = EntryPoint::<backend::Backend> {
@@ -211,14 +261,6 @@ fn main() {
             rate: 0,
         });
 
-        // We have to declare our two vertex attributes: position and color.
-        // Note that their locations have to match the locations in the shader, and
-        // their format has to be appropriate for the data type in the shader.
-        // vec3 = Rgb32Float
-        // vec4 = Rgba32Float
-        //
-        // Additionally, the second attribute must have an offset of 12 bytes in the
-        // vertex, because this is the size of the first field.
         pipeline_desc.attributes.push(AttributeDesc {
             location: 0,
             binding: 0,
@@ -352,6 +394,25 @@ fn main() {
             swapchain_stuff = Some((swapchain, frame_images, framebuffers));
         }
 
+        let (width, height) = window.get_inner_size().unwrap();
+        let aspect_corrected_x = height as f32 / width as f32;
+        let zoom = 0.5;
+        let x_scale = aspect_corrected_x * zoom;
+        let y_scale = zoom;
+
+        utils::fill_buffer::<Backend, UniformBlock>(
+            &device,
+            &mut uniform_memory,
+            &[UniformBlock {
+                projection: [
+                    [x_scale, 0.0, 0.0, 0.0],
+                    [0.0, y_scale, 0.0, 0.0],
+                    [0.0, 0.0, 1.0, 0.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                ],
+            }],
+        );
+
         let (swapchain, _frame_images, framebuffers) = swapchain_stuff.as_mut().unwrap();
 
         device.reset_fence(&frame_fence);
@@ -381,6 +442,8 @@ fn main() {
             command_buffer.bind_graphics_pipeline(&pipeline);
             command_buffer.bind_vertex_buffers(0, VertexBufferSet(vec![(&vertex_buffer, 0)]));
 
+            command_buffer.bind_graphics_descriptor_sets(&pipeline_layout, 0, vec![&desc_set], &[]);
+
             {
                 let mut encoder = command_buffer.begin_render_pass_inline(
                     &render_pass,
@@ -389,10 +452,24 @@ fn main() {
                     &[ClearValue::Color(ClearColor::Float([0.0, 0.0, 0.0, 1.0]))],
                 );
 
-                // Instead of drawing the vertex range 0..3, we now want to draw
-                // however many vertices our mesh has.
                 let num_vertices = MESH.len() as u32;
-                encoder.draw(0..num_vertices, 0..1);
+
+                // TODO: Explain this garbage
+                for diamond in &diamonds {
+                    let push_constants = {
+                        let start_ptr = diamond as *const PushConstants as *const u32;
+                        unsafe { std::slice::from_raw_parts(start_ptr, num_push_constants) }
+                    };
+
+                    encoder.push_graphics_constants(
+                        &pipeline_layout,
+                        ShaderStageFlags::VERTEX,
+                        0,
+                        push_constants,
+                    );
+
+                    encoder.draw(0..num_vertices, 0..1);
+                }
             }
 
             command_buffer.finish()
@@ -418,11 +495,12 @@ fn main() {
     device.destroy_shader_module(vertex_shader_module);
     device.destroy_shader_module(fragment_shader_module);
     device.destroy_command_pool(command_pool.into_raw());
-
-    // Note that we now have to destroy our vertex buffer and its memory
+    device.destroy_descriptor_pool(desc_pool);
+    device.destroy_descriptor_set_layout(set_layout);
+    device.destroy_buffer(uniform_buffer);
+    device.free_memory(uniform_memory);
     device.destroy_buffer(vertex_buffer);
     device.free_memory(vertex_buffer_memory);
-
     device.destroy_fence(frame_fence);
     device.destroy_semaphore(frame_semaphore);
 }
