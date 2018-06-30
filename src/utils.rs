@@ -66,3 +66,25 @@ pub fn create_buffer<B: Backend, Item: Copy>(
 
     (empty_buffer, empty_buffer_memory)
 }
+
+/// Reinterpret an instance of T as a slice of u32s that can be uploaded as push
+/// constants.
+pub fn push_constant_data<T>(data: &T) -> &[u32] {
+    let size = push_constant_size::<T>();
+    let ptr = data as *const T as *const u32;
+
+    unsafe { ::std::slice::from_raw_parts(ptr, size) }
+}
+
+/// Determine the number of push constants required to store T.
+/// Panics if T is not a multiple of 4 bytes - the size of a push constant.
+pub fn push_constant_size<T>() -> usize {
+    const PUSH_CONSTANT_SIZE: usize = ::std::mem::size_of::<u32>();
+    let type_size = ::std::mem::size_of::<T>();
+
+    // We want to ensure that the type we upload as a series of push constants
+    // is actually representable as a series of u32 push constants.
+    assert!(type_size % PUSH_CONSTANT_SIZE == 0);
+
+    type_size / PUSH_CONSTANT_SIZE
+}
