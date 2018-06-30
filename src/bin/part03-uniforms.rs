@@ -116,18 +116,14 @@ fn main() {
     // TODO: explain
     let desc_set = desc_pool.allocate_set(&set_layout).unwrap();
 
+    // TODO: Explain both buffer and default value
     let (uniform_buffer, mut uniform_memory) = utils::create_buffer::<Backend, UniformBlock>(
         &device,
         &memory_types,
         Properties::CPU_VISIBLE,
         buffer::Usage::UNIFORM,
         &[UniformBlock {
-            projection: [
-                [1.0, 0.0, 0.0, 0.0],
-                [0.0, 1.0, 0.0, 0.0],
-                [0.0, 0.0, 1.0, 0.0],
-                [0.0, 0.0, 0.0, 1.0],
-            ],
+            projection: Default::default(),
         }],
     );
 
@@ -369,14 +365,20 @@ fn main() {
             swapchain_stuff = Some((swapchain, frame_images, framebuffers));
         }
 
-        // TODO: Animate and explain
+        // TODO: Explain
+        let (width, height) = window.get_inner_size().unwrap();
+        let aspect_corrected_x = height as f32 / width as f32;
+        let zoom = 0.5;
+        let x_scale = aspect_corrected_x * zoom;
+        let y_scale = zoom;
+
         utils::fill_buffer::<Backend, UniformBlock>(
             &device,
             &mut uniform_memory,
             &[UniformBlock {
                 projection: [
-                    [1.0, 0.0, 0.0, 0.0],
-                    [0.0, 1.0, 0.0, 0.0],
+                    [x_scale, 0.0, 0.0, 0.0],
+                    [0.0, y_scale, 0.0, 0.0],
                     [0.0, 0.0, 1.0, 0.0],
                     [0.0, 0.0, 0.0, 1.0],
                 ],
