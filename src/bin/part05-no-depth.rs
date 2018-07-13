@@ -60,7 +60,7 @@ fn main() {
 
     let window = WindowBuilder::new()
         .with_title("Part 05: Without depth testing")
-        .with_dimensions(256, 256)
+        .with_dimensions((256, 256).into())
         .build(&events_loop)
         .unwrap();
 
@@ -293,7 +293,7 @@ fn main() {
                             },
                         ..
                     } => quitting = true,
-                    WindowEvent::Resized(_, _) => {
+                    WindowEvent::Resized(_) => {
                         resizing = true;
                     }
                     _ => {}
@@ -324,11 +324,10 @@ fn main() {
         if swapchain_stuff.is_none() {
             surface = instance.create_surface(&window);
 
-            let window_size = window.get_inner_size().unwrap();
+            let (width, height): (u32, u32) = window.get_inner_size().unwrap().into();
 
             let (swapchain, backbuffer) = {
                 let extent = {
-                    let (width, height) = window_size;
                     Extent2D { width, height }
                 };
 
@@ -341,7 +340,6 @@ fn main() {
 
             let (frame_images, framebuffers) = match backbuffer {
                 Backbuffer::Images(images) => {
-                    let (width, height) = window_size;
                     let extent = Extent {
                         width,
                         height,
@@ -387,7 +385,7 @@ fn main() {
             swapchain_stuff = Some((swapchain, frame_images, framebuffers));
         }
 
-        let (width, height) = window.get_inner_size().unwrap();
+        let (width, height): (u32, u32) = window.get_inner_size().unwrap().into();
         let aspect_corrected_x = height as f32 / width as f32;
         let zoom = 0.5;
         let x_scale = aspect_corrected_x * zoom;
@@ -418,13 +416,12 @@ fn main() {
         let finished_command_buffer = {
             let mut command_buffer = command_pool.acquire_command_buffer(false);
 
-            let (width, height) = window.get_inner_size().unwrap();
             let viewport = Viewport {
                 rect: Rect {
                     x: 0,
                     y: 0,
-                    w: width as u16,
-                    h: height as u16,
+                    w: width as i16,
+                    h: height as i16,
                 },
                 depth: 0.0..1.0,
             };
