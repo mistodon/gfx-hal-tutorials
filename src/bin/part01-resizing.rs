@@ -14,7 +14,7 @@ fn main() {
 
     let window = WindowBuilder::new()
         .with_title("Part 01: Resizing")
-        .with_dimensions(256, 256)
+        .with_dimensions((256, 256).into())
         .build(&events_loop)
         .unwrap();
 
@@ -156,7 +156,7 @@ fn main() {
                     } => quitting = true,
 
                     // We need to recreate our swapchain if we resize, so track it.
-                    WindowEvent::Resized(_, _) => {
+                    WindowEvent::Resized(_) => {
                         resizing = true;
                     }
 
@@ -202,11 +202,10 @@ fn main() {
 
             // Here we just create the swapchain, frame images, and framebuffers
             // like we did in part 00, and store them in swapchain_stuff.
-            let window_size = window.get_inner_size().unwrap();
+            let (width, height): (u32, u32) = window.get_inner_size().unwrap().into();
 
             let (swapchain, backbuffer) = {
                 let extent = {
-                    let (width, height) = window_size;
                     Extent2D { width, height }
                 };
 
@@ -219,7 +218,6 @@ fn main() {
 
             let (frame_images, framebuffers) = match backbuffer {
                 Backbuffer::Images(images) => {
-                    let (width, height) = window_size;
                     let extent = Extent {
                         width,
                         height,
@@ -280,13 +278,13 @@ fn main() {
         let finished_command_buffer = {
             let mut command_buffer = command_pool.acquire_command_buffer(false);
 
-            let (width, height) = window.get_inner_size().unwrap();
+            let (width, height): (u32, u32) = window.get_inner_size().unwrap().into();
             let viewport = Viewport {
                 rect: Rect {
                     x: 0,
                     y: 0,
-                    w: width as u16,
-                    h: height as u16,
+                    w: width as i16,
+                    h: height as i16,
                 },
                 depth: 0.0..1.0,
             };

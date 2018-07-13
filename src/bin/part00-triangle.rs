@@ -23,13 +23,14 @@ use gfx_hal::{
 
 use winit::{Event, EventsLoop, KeyboardInput, VirtualKeyCode, WindowBuilder, WindowEvent};
 
+// TODO: Fix weird DPI issue
 fn main() {
     // Create a window with winit.
     let mut events_loop = EventsLoop::new();
 
     let window = WindowBuilder::new()
         .with_title("Part 00: Triangle")
-        .with_dimensions(256, 256)
+        .with_dimensions((256, 256).into())
         .build(&events_loop)
         .unwrap();
 
@@ -202,7 +203,7 @@ fn main() {
     // views and framebuffers from these next.
     let (mut swapchain, backbuffer) = {
         let extent = {
-            let (width, height) = window_size;
+            let (width, height) = window_size.into();
             Extent2D { width, height }
         };
 
@@ -230,7 +231,7 @@ fn main() {
     // framebuffer chooses specific image views for each one.
     let (frame_images, framebuffers) = match backbuffer {
         Backbuffer::Images(images) => {
-            let (width, height) = window_size;
+            let (width, height) = window_size.into();
             let extent = Extent {
                 width,
                 height,
@@ -322,13 +323,17 @@ fn main() {
 
             // Define a rectangle on screen to draw into.
             // In this case, the whole screen.
-            let (width, height) = window.get_inner_size().unwrap();
+            let (width, height): (u32, u32) = window
+                .get_inner_size()
+                .unwrap()
+                .into();
+
             let viewport = Viewport {
                 rect: Rect {
                     x: 0,
                     y: 0,
-                    w: width as u16,
-                    h: height as u16,
+                    w: width as i16,
+                    h: height as i16,
                 },
                 depth: 0.0..1.0,
             };
