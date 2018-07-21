@@ -192,7 +192,10 @@ fn main() {
     // Initialize our swapchain, images, framebuffers, etc.
     // We expect to have to rebuild these when the window is resized -
     // however we're going to ignore that for this example.
-    let window_size = window.get_inner_size().unwrap();
+    let window_size: (u32, u32) = window.get_inner_size()
+        .unwrap()
+        .to_physical(window.get_hidpi_factor())
+        .into();
 
     // A swapchain is effectively a chain of images (commonly two) that will be
     // displayed to the screen. While one is being displayed, we can draw to one
@@ -203,9 +206,11 @@ fn main() {
     // views and framebuffers from these next.
     let (mut swapchain, backbuffer) = {
         let extent = {
-            let (width, height) = window_size.into();
+            let (width, height) = window_size;
             Extent2D { width, height }
         };
+
+        println!("extent: {:?}", extent);
 
         let swap_config = SwapchainConfig::new()
             .with_color(surface_color_format)
@@ -237,6 +242,8 @@ fn main() {
                 height,
                 depth: 1,
             };
+
+            println!("extent2: {:?}", extent);
 
             let color_range = SubresourceRange {
                 aspects: Aspects::COLOR,
@@ -323,9 +330,9 @@ fn main() {
 
             // Define a rectangle on screen to draw into.
             // In this case, the whole screen.
-            let (width, height): (u32, u32) = window
-                .get_inner_size()
+            let (width, height): (u32, u32) = window.get_inner_size()
                 .unwrap()
+                .to_physical(window.get_hidpi_factor())
                 .into();
 
             let viewport = Viewport {
