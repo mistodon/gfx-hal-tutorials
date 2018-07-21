@@ -3,8 +3,7 @@ extern crate gfx_hal;
 extern crate winit;
 
 use gfx_hal::{
-    command::{ClearColor, ClearValue},
-    format::{Aspects, ChannelType, Format, Swizzle},
+    command::{ClearColor, ClearValue}, format::{Aspects, ChannelType, Format, Swizzle},
     image::{self, Access, Extent, Layout, SubresourceRange, ViewKind},
     pass::{
         Attachment, AttachmentLoadOp, AttachmentOps, AttachmentStoreOp, Subpass, SubpassDependency,
@@ -15,10 +14,8 @@ use gfx_hal::{
         BlendState, ColorBlendDesc, ColorMask, EntryPoint, GraphicsPipelineDesc, GraphicsShaderSet,
         PipelineStage, Rasterizer, Rect, Viewport,
     },
-    queue::Submission,
-    window::Extent2D,
-    Backbuffer, Device, FrameSync, Graphics, Instance, Primitive, Surface, SwapImageIndex,
-    Swapchain, SwapchainConfig,
+    queue::Submission, window::Extent2D, Backbuffer, Device, FrameSync, Graphics, Instance,
+    Primitive, Surface, SwapImageIndex, Swapchain, SwapchainConfig,
 };
 
 use winit::{Event, EventsLoop, KeyboardInput, VirtualKeyCode, WindowBuilder, WindowEvent};
@@ -191,7 +188,8 @@ fn main() {
     // Initialize our swapchain, images, framebuffers, etc.
     // We expect to have to rebuild these when the window is resized -
     // however we're going to ignore that for this example.
-    let window_size: (u32, u32) = window.get_inner_size()
+    let window_size: (u32, u32) = window
+        .get_inner_size()
         .unwrap()
         .to_physical(window.get_hidpi_factor())
         .into();
@@ -233,7 +231,7 @@ fn main() {
     // framebuffer chooses specific image views for each one.
     let (frame_images, framebuffers) = match backbuffer {
         Backbuffer::Images(images) => {
-            let (width, height) = window_size.into();
+            let (width, height) = window_size;
             let extent = Extent {
                 width,
                 height,
@@ -325,7 +323,8 @@ fn main() {
 
             // Define a rectangle on screen to draw into.
             // In this case, the whole screen.
-            let (width, height): (u32, u32) = window.get_inner_size()
+            let (width, height): (u32, u32) = window
+                .get_inner_size()
                 .unwrap()
                 .to_physical(window.get_hidpi_factor())
                 .into();

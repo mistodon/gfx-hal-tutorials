@@ -328,7 +328,8 @@ fn main() {
             break;
         }
 
-        let window_size: (u32, u32) = window.get_inner_size()
+        let window_size: (u32, u32) = window
+            .get_inner_size()
             .unwrap()
             .to_physical(window.get_hidpi_factor())
             .into();
@@ -338,9 +339,7 @@ fn main() {
 
             let (width, height) = window_size;
             let (swapchain, backbuffer) = {
-                let extent = {
-                    Extent2D { width, height }
-                };
+                let extent = { Extent2D { width, height } };
 
                 let swap_config = SwapchainConfig::new()
                     .with_color(surface_color_format)
