@@ -193,6 +193,11 @@ fn main() {
             break;
         }
 
+        let window_size: (u32, u32) = window.get_inner_size()
+            .unwrap()
+            .to_physical(window.get_hidpi_factor())
+            .into();
+
         // If we don't have a swapchain here, we destroyed it and we need to
         // recreate it.
         if swapchain_stuff.is_none() {
@@ -202,8 +207,7 @@ fn main() {
 
             // Here we just create the swapchain, frame images, and framebuffers
             // like we did in part 00, and store them in swapchain_stuff.
-            let (width, height): (u32, u32) = window.get_inner_size().unwrap().into();
-
+            let (width, height) = window_size;
             let (swapchain, backbuffer) = {
                 let extent = {
                     Extent2D { width, height }
@@ -278,7 +282,7 @@ fn main() {
         let finished_command_buffer = {
             let mut command_buffer = command_pool.acquire_command_buffer(false);
 
-            let (width, height): (u32, u32) = window.get_inner_size().unwrap().into();
+            let (width, height) = window_size;
             let viewport = Viewport {
                 rect: Rect {
                     x: 0,

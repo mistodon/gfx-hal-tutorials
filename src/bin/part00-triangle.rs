@@ -23,7 +23,6 @@ use gfx_hal::{
 
 use winit::{Event, EventsLoop, KeyboardInput, VirtualKeyCode, WindowBuilder, WindowEvent};
 
-// TODO: Fix weird DPI issue
 fn main() {
     // Create a window with winit.
     let mut events_loop = EventsLoop::new();
@@ -210,8 +209,6 @@ fn main() {
             Extent2D { width, height }
         };
 
-        println!("extent: {:?}", extent);
-
         let swap_config = SwapchainConfig::new()
             .with_color(surface_color_format)
             .with_image_usage(image::Usage::COLOR_ATTACHMENT);
@@ -242,8 +239,6 @@ fn main() {
                 height,
                 depth: 1,
             };
-
-            println!("extent2: {:?}", extent);
 
             let color_range = SubresourceRange {
                 aspects: Aspects::COLOR,

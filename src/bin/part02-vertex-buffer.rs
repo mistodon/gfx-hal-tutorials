@@ -286,11 +286,15 @@ fn main() {
             break;
         }
 
+        let window_size: (u32, u32) = window.get_inner_size()
+            .unwrap()
+            .to_physical(window.get_hidpi_factor())
+            .into();
+
         if swapchain_stuff.is_none() {
             surface = instance.create_surface(&window);
 
-            let (width, height): (u32, u32) = window.get_inner_size().unwrap().into();
-
+            let (width, height) = window_size;
             let (swapchain, backbuffer) = {
                 let extent = {
                     Extent2D { width, height }
@@ -362,7 +366,7 @@ fn main() {
         let finished_command_buffer = {
             let mut command_buffer = command_pool.acquire_command_buffer(false);
 
-            let (width, height): (u32, u32) = window.get_inner_size().unwrap().into();
+            let (width, height) = window_size;
             let viewport = Viewport {
                 rect: Rect {
                     x: 0,
