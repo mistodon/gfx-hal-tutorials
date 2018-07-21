@@ -300,11 +300,15 @@ fn main() {
             break;
         }
 
+        let window_size: (u32, u32) = window.get_inner_size()
+            .unwrap()
+            .to_physical(window.get_hidpi_factor())
+            .into();
+
         if swapchain_stuff.is_none() {
             surface = instance.create_surface(&window);
 
-            let (width, height): (u32, u32) = window.get_inner_size().unwrap().into();
-
+            let (width, height) = window_size;
             let (swapchain, backbuffer) = {
                 let extent = {
                     Extent2D { width, height }
@@ -366,7 +370,7 @@ fn main() {
 
         // TODO: Explain - in particular that we cannot change this between draw
         // calls.
-        let (width, height): (u32, u32) = window.get_inner_size().unwrap().into();
+        let (width, height) = window_size;
         let aspect_corrected_x = height as f32 / width as f32;
         let zoom = 0.5;
         let x_scale = aspect_corrected_x * zoom;
