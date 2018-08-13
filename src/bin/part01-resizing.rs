@@ -253,7 +253,7 @@ fn main() {
                         .iter()
                         .map(|&(_, ref image_view)| {
                             device
-                                .create_framebuffer(&render_pass, Some(image_view), extent)
+                                .create_framebuffer(&render_pass, vec![image_view], extent)
                                 .unwrap()
                         })
                         .collect();
