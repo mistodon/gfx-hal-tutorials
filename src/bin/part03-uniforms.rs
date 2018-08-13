@@ -16,7 +16,7 @@ use backend::Backend;
 use winit::{Event, EventsLoop, KeyboardInput, VirtualKeyCode, WindowBuilder, WindowEvent};
 
 // Again, we need a struct that we can upload to a uniform buffer.
-// Here we're supplying a 3x3 "projection" matrix, which will just correct for our
+// Here we're supplying a 4x4 "projection" matrix, which will just correct for our
 // aspect ratio, as we'll see later.
 // TODO: Repeat big warning about layout.
 #[derive(Debug, Clone, Copy)]
@@ -354,7 +354,7 @@ fn main() {
                         .iter()
                         .map(|&(_, ref image_view)| {
                             device
-                                .create_framebuffer(&render_pass, Some(image_view), extent)
+                                .create_framebuffer(&render_pass, vec![image_view], extent)
                                 .unwrap()
                         })
                         .collect();

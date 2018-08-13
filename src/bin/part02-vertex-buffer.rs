@@ -205,6 +205,7 @@ fn main() {
             .targets
             .push(ColorBlendDesc(ColorMask::ALL, BlendState::ALPHA));
 
+        // TODO: I guess this needs a tiny bit of explanation.
         pipeline_desc.vertex_buffers.push(VertexBufferDesc {
             binding: 0,
             stride: std::mem::size_of::<Vertex>() as u32,
@@ -340,7 +341,7 @@ fn main() {
                         .iter()
                         .map(|&(_, ref image_view)| {
                             device
-                                .create_framebuffer(&render_pass, Some(image_view), extent)
+                                .create_framebuffer(&render_pass, vec![image_view], extent)
                                 .unwrap()
                         })
                         .collect();
