@@ -128,7 +128,9 @@ fn main() {
             .targets
             .push(ColorBlendDesc(ColorMask::ALL, BlendState::ALPHA));
 
-        device.create_graphics_pipeline(&pipeline_desc).unwrap()
+        device
+            .create_graphics_pipeline(&pipeline_desc, None)
+            .unwrap()
     };
 
     // We're going to defer the construction of our swapchain, frame images, and
