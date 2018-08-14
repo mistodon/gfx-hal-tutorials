@@ -59,12 +59,12 @@ fn main() {
     let mut events_loop = EventsLoop::new();
 
     let window = WindowBuilder::new()
-        .with_title("Part 05: Without depth testing")
+        .with_title("Part 05: Depth testing")
         .with_dimensions((256, 256).into())
         .build(&events_loop)
         .unwrap();
 
-    let instance = backend::Instance::create("Part 05: Without depth testing", 1);
+    let instance = backend::Instance::create("Part 05: Depth testing", 1);
 
     let mut surface = instance.create_surface(&window);
 
@@ -151,6 +151,9 @@ fn main() {
         }
     };
 
+    // TODO: How do we choose this correctly?
+    let depth_format = Format::D32FloatS8Uint;
+
     let render_pass = {
         let color_attachment = Attachment {
             format: Some(surface_color_format),
@@ -160,9 +163,19 @@ fn main() {
             layouts: Layout::Undefined..Layout::Present,
         };
 
+        // TODO: Explain
+        let depth_attachment = Attachment {
+            format: Some(depth_format),
+            samples: 1,
+            ops: AttachmentOps::new(AttachmentLoadOp::Clear, AttachmentStoreOp::DontCare),
+            stencil_ops: AttachmentOps::DONT_CARE,
+            layouts: Layout::Undefined..Layout::DepthStencilAttachmentOptimal,
+        };
+
         let subpass = SubpassDesc {
             colors: &[(0, Layout::ColorAttachmentOptimal)],
-            depth_stencil: None,
+            // TODO: Explain
+            depth_stencil: Some(&(1, Layout::DepthStencilAttachmentOptimal)),
             inputs: &[],
             resolves: &[],
             preserves: &[],
@@ -175,7 +188,11 @@ fn main() {
                 ..(Access::COLOR_ATTACHMENT_READ | Access::COLOR_ATTACHMENT_WRITE),
         };
 
-        device.create_render_pass(&[color_attachment], &[subpass], &[dependency])
+        device.create_render_pass(
+            &[color_attachment, depth_attachment],
+            &[subpass],
+            &[dependency],
+        )
     };
 
     let num_push_constants = utils::push_constant_size::<PushConstants>() as u32;
@@ -185,8 +202,6 @@ fn main() {
         &[(ShaderStageFlags::VERTEX, 0..num_push_constants)],
     );
 
-    // These shapes are not in order of depth, so without depth testing they
-    // will draw in an irregular order.
     let diamonds = vec![
         PushConstants {
             tint: [0.6, 0.6, 0.6, 1.0],
@@ -273,10 +288,22 @@ fn main() {
             },
         });
 
+        // TODO: Explain
+        pipeline_desc.depth_stencil = DepthStencilDesc {
+            depth: DepthTest::On {
+                fun: Comparison::Less,
+                write: true,
+            },
+            depth_bounds: false,
+            stencil: StencilTest::default(),
+        };
+
         device.create_graphics_pipeline(&pipeline_desc).unwrap()
     };
 
-    let mut swapchain_stuff: Option<(_, _, _)> = None;
+    // We have three more items to keep track of alongside or swapchain, because
+    // they need to be recreated when the window is resized. We'll get to them soon.
+    let mut swapchain_stuff: Option<(_, _, _, _, _, _)> = None;
 
     loop {
         let mut quitting = false;
@@ -303,7 +330,15 @@ fn main() {
         });
 
         if (resizing || quitting) && swapchain_stuff.is_some() {
-            let (swapchain, frame_images, framebuffers) = swapchain_stuff.take().unwrap();
+            // As mentioned, we have three new depth-related things to track.
+            let (
+                swapchain,
+                frame_images,
+                framebuffers,
+                depth_image,
+                depth_image_view,
+                depth_image_memory,
+            ) = swapchain_stuff.take().unwrap();
 
             device.wait_idle().unwrap();
             command_pool.reset();
@@ -315,6 +350,12 @@ fn main() {
             for (_, image_view) in frame_images {
                 device.destroy_image_view(image_view);
             }
+
+            // ... and they have to be cleaned up too.
+            device.destroy_image_view(depth_image_view);
+            device.destroy_image(depth_image);
+            device.free_memory(depth_image_memory);
+
             device.destroy_swapchain(swapchain);
         }
 
@@ -340,6 +381,59 @@ fn main() {
                     .with_image_usage(image::Usage::COLOR_ATTACHMENT);
 
                 device.create_swapchain(&mut surface, swap_config, None, &extent)
+            };
+
+            // Here's where we create the new stuff:
+            // TODO: Explain it all
+            let (depth_image, depth_image_memory, depth_image_view) = {
+                let kind = image::Kind::D2(width as image::Size, height as image::Size, 1, 1);
+
+                let unbound_depth_image = device
+                    .create_image(
+                        kind,
+                        1,
+                        depth_format,
+                        image::Tiling::Optimal,
+                        image::Usage::DEPTH_STENCIL_ATTACHMENT,
+                        image::StorageFlags::empty(),
+                    )
+                    .expect("Failed to create unbound depth image");
+
+                let image_req = device.get_image_requirements(&unbound_depth_image);
+
+                let device_type = memory_types
+                    .iter()
+                    .enumerate()
+                    .position(|(id, memory_type)| {
+                        image_req.type_mask & (1 << id) != 0
+                            && memory_type.properties.contains(Properties::DEVICE_LOCAL)
+                    })
+                    .unwrap()
+                    .into();
+
+                let depth_image_memory = device
+                    .allocate_memory(device_type, image_req.size)
+                    .expect("Failed to allocate depth image");
+
+                let depth_image = device
+                    .bind_image_memory(&depth_image_memory, 0, unbound_depth_image)
+                    .expect("Failed to bind depth image");
+
+                let depth_image_view = device
+                    .create_image_view(
+                        &depth_image,
+                        image::ViewKind::D2,
+                        depth_format,
+                        Swizzle::NO,
+                        image::SubresourceRange {
+                            aspects: Aspects::DEPTH | Aspects::STENCIL,
+                            levels: 0..1,
+                            layers: 0..1,
+                        },
+                    )
+                    .expect("Failed to create image view");
+
+                (depth_image, depth_image_memory, depth_image_view)
             };
 
             let (frame_images, framebuffers) = match backbuffer {
@@ -376,7 +470,12 @@ fn main() {
                         .iter()
                         .map(|&(_, ref image_view)| {
                             device
-                                .create_framebuffer(&render_pass, vec![image_view], extent)
+                                .create_framebuffer(
+                                    &render_pass,
+                                    // TODO: Explain
+                                    vec![image_view, &depth_image_view],
+                                    extent,
+                                )
                                 .unwrap()
                         })
                         .collect();
@@ -386,7 +485,16 @@ fn main() {
                 Backbuffer::Framebuffer(fbo) => (Vec::new(), vec![fbo]),
             };
 
-            swapchain_stuff = Some((swapchain, frame_images, framebuffers));
+            // We have to store the depth stuff so we can clean it up later.
+            // (Which we're actually handling earlier on at the start of the loop.)
+            swapchain_stuff = Some((
+                swapchain,
+                frame_images,
+                framebuffers,
+                depth_image,
+                depth_image_view,
+                depth_image_memory,
+            ));
         }
 
         let (width, height) = window_size;
@@ -408,7 +516,14 @@ fn main() {
             }],
         );
 
-        let (swapchain, _frame_images, framebuffers) = swapchain_stuff.as_mut().unwrap();
+        let (
+            swapchain,
+            _frame_images,
+            framebuffers,
+            _depth_image,
+            _depth_image_view,
+            _depth_image_memory,
+        ) = swapchain_stuff.as_mut().unwrap();
 
         device.reset_fence(&frame_fence);
         command_pool.reset();
@@ -443,7 +558,11 @@ fn main() {
                     &render_pass,
                     &framebuffers[frame_index as usize],
                     viewport.rect,
-                    &[ClearValue::Color(ClearColor::Float([0.0, 0.0, 0.0, 1.0]))],
+                    &[
+                        ClearValue::Color(ClearColor::Float([0.0, 0.0, 0.0, 1.0])),
+                        // TODO: Explain
+                        ClearValue::DepthStencil(ClearDepthStencil(1.0, 0)),
+                    ],
                 );
 
                 let num_vertices = MESH.len() as u32;
