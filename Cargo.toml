@@ -8,11 +8,11 @@ winit = "=0.16.2"
 
 [dependencies.gfx-hal]
 git = "https://github.com/gfx-rs/gfx"
-rev = "4d872f87"
+rev = "d428a5d5"
 
 [dependencies.gfx-backend-metal]
 git = "https://github.com/gfx-rs/gfx"
-rev = "4d872f87"
+rev = "d428a5d5"
 
 [build-dependencies]
 glsl-to-spirv = "=0.1.6"

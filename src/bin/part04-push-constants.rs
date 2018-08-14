@@ -279,7 +279,9 @@ fn main() {
             },
         });
 
-        device.create_graphics_pipeline(&pipeline_desc).unwrap()
+        device
+            .create_graphics_pipeline(&pipeline_desc, None)
+            .unwrap()
     };
 
     let mut swapchain_stuff: Option<(_, _, _)> = None;

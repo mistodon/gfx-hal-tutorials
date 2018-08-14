@@ -298,7 +298,9 @@ fn main() {
             stencil: StencilTest::default(),
         };
 
-        device.create_graphics_pipeline(&pipeline_desc).unwrap()
+        device
+            .create_graphics_pipeline(&pipeline_desc, None)
+            .unwrap()
     };
 
     // We have three more items to keep track of alongside or swapchain, because
