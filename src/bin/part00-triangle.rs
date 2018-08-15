@@ -1,7 +1,11 @@
+// You should be able to use a different backend crate on different platforms.
+// As soon as I can test it, I'll update this repo to switch automatically.
 extern crate gfx_backend_metal as backend;
+
 extern crate gfx_hal;
 extern crate winit;
 
+// There are a lot of imports - best to just accept it.
 use gfx_hal::{
     command::{ClearColor, ClearValue},
     format::{Aspects, ChannelType, Format, Swizzle},
