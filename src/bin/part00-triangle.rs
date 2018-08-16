@@ -73,26 +73,6 @@ fn main() {
         max_buffers,
     );
 
-    // Shader modules are needed later to create a pipeline definition.
-    // The shader is loaded from SPIR-V binary files.
-    let vertex_shader_module = {
-        let spirv = include_bytes!("../../assets/gen/shaders/part00.vert.spv");
-        device.create_shader_module(spirv).unwrap()
-    };
-
-    let fragment_shader_module = {
-        let spirv = include_bytes!("../../assets/gen/shaders/part00.frag.spv");
-        device.create_shader_module(spirv).unwrap()
-    };
-
-    // The frame semaphore is used to allow us to wait for an image to be ready
-    // before attempting to draw on it,
-    //
-    // The frame fence is used to to allow us to wait until our draw commands have
-    // finished before attempting to display the image.
-    let frame_semaphore = device.create_semaphore();
-    let frame_fence = device.create_fence(false);
-
     let surface_color_format = {
         let physical_device = &adapter.physical_device;
         let (_, formats, _) = surface.compatibility(physical_device);
@@ -147,6 +127,18 @@ fn main() {
     // for now.
     let pipeline_layout = device.create_pipeline_layout(&[], &[]);
 
+    // Shader modules are needed to create a pipeline definition.
+    // The shader is loaded from SPIR-V binary files.
+    let vertex_shader_module = {
+        let spirv = include_bytes!("../../assets/gen/shaders/part00.vert.spv");
+        device.create_shader_module(spirv).unwrap()
+    };
+
+    let fragment_shader_module = {
+        let spirv = include_bytes!("../../assets/gen/shaders/part00.frag.spv");
+        device.create_shader_module(spirv).unwrap()
+    };
+
     // A pipeline object encodes almost all the state you need in order to draw
     // geometry on screen. For now that's really only which shaders to use, what
     // kind of blending to do, and what kind of primitives to draw.
@@ -197,6 +189,7 @@ fn main() {
     // Initialize our swapchain, images, framebuffers, etc.
     // We expect to have to rebuild these when the window is resized -
     // however we're going to ignore that for this example.
+
     let window_size: (u32, u32) = window
         .get_inner_size()
         .unwrap()
@@ -223,9 +216,6 @@ fn main() {
         device.create_swapchain(&mut surface, swap_config, None, &extent)
     };
 
-    // The frame_images below is actually an array of pairs, (image, image_view).
-    // One for each image in the backbuffer.
-    //
     // You can think of an image as just the raw binary of the literal image, with
     // additional metadata about the format.
     //
@@ -238,7 +228,10 @@ fn main() {
     // Framebuffers bind certain image views to certain attachments. So for example,
     // if your render pass requires one color, and one depth, attachment - the
     // framebuffer chooses specific image views for each one.
-    let (frame_images, framebuffers) = match backbuffer {
+    //
+    // Here we create an image view and a framebuffer for each image in our
+    // swapchain.
+    let (frame_views, framebuffers) = match backbuffer {
         Backbuffer::Images(images) => {
             let (width, height) = window_size;
             let extent = Extent {
@@ -253,39 +246,46 @@ fn main() {
                 layers: 0..1,
             };
 
-            let image_view_pairs = images
-                .into_iter()
+            let image_views = images
+                .iter()
                 .map(|image| {
-                    let image_view = device
+                    device
                         .create_image_view(
-                            &image,
+                            image,
                             ViewKind::D2,
                             surface_color_format,
                             Swizzle::NO,
                             color_range.clone(),
                         )
-                        .unwrap();
-                    (image, image_view)
+                        .unwrap()
                 })
                 .collect::<Vec<_>>();
 
-            let fbos = image_view_pairs
+            let fbos = image_views
                 .iter()
-                .map(|&(_, ref image_view)| {
+                .map(|image_view| {
                     device
                         .create_framebuffer(&render_pass, vec![image_view], extent)
                         .unwrap()
                 })
                 .collect();
 
-            (image_view_pairs, fbos)
+            (image_views, fbos)
         }
 
         // This arm of the branch is currently only used by the OpenGL backend,
         // which supplies an opaque framebuffer for you instead of giving you control
         // over individual images.
-        Backbuffer::Framebuffer(fbo) => (Vec::new(), vec![fbo]),
+        Backbuffer::Framebuffer(fbo) => (vec![], vec![fbo]),
     };
+
+    // The frame semaphore is used to allow us to wait for an image to be ready
+    // before attempting to draw on it,
+    //
+    // The frame fence is used to to allow us to wait until our draw commands have
+    // finished before attempting to display the image.
+    let frame_semaphore = device.create_semaphore();
+    let frame_fence = device.create_fence(false);
 
     // Mainloop starts here
     loop {
@@ -314,12 +314,13 @@ fn main() {
         }
 
         // Start rendering
+
         device.reset_fence(&frame_fence);
         command_pool.reset();
 
         // A swapchain contains multiple images - which one should we draw on? This
-        // doesn't return a valid image as such, but will signal frame_semaphore
-        // when the image is available.
+        // returns the index of the image we'll use. The image may not be ready for
+        // rendering yet, but will signal frame_semaphore when it is.
         let frame_index: SwapImageIndex = swapchain
             .acquire_image(FrameSync::Semaphore(&frame_semaphore))
             .expect("Failed to acquire frame");
@@ -407,7 +408,7 @@ fn main() {
         device.destroy_framebuffer(framebuffer);
     }
 
-    for (_, image_view) in frame_images {
+    for image_view in frame_views {
         device.destroy_image_view(image_view);
     }
 

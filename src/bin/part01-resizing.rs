@@ -172,7 +172,7 @@ fn main() {
         if (resizing || quitting) && swapchain_stuff.is_some() {
             // Take ownership over the old stuff so we can destroy it.
             // The value of swapchain_stuff is now `None`.
-            let (swapchain, frame_images, framebuffers) = swapchain_stuff.take().unwrap();
+            let (swapchain, frame_views, framebuffers) = swapchain_stuff.take().unwrap();
 
             // We want to wait for all queues to be idle and reset the command pool,
             // so that we know that no commands are being executed while we destroy
@@ -185,7 +185,7 @@ fn main() {
                 device.destroy_framebuffer(framebuffer);
             }
 
-            for (_, image_view) in frame_images {
+            for image_view in frame_views {
                 device.destroy_image_view(image_view);
             }
             device.destroy_swapchain(swapchain);
@@ -221,7 +221,7 @@ fn main() {
                 device.create_swapchain(&mut surface, swap_config, None, &extent)
             };
 
-            let (frame_images, framebuffers) = match backbuffer {
+            let (frame_views, framebuffers) = match backbuffer {
                 Backbuffer::Images(images) => {
                     let extent = Extent {
                         width,
@@ -235,10 +235,10 @@ fn main() {
                         layers: 0..1,
                     };
 
-                    let image_view_pairs = images
+                    let image_views = images
                         .into_iter()
                         .map(|image| {
-                            let image_view = device
+                            device
                                 .create_image_view(
                                     &image,
                                     ViewKind::D2,
@@ -246,32 +246,31 @@ fn main() {
                                     Swizzle::NO,
                                     color_range.clone(),
                                 )
-                                .unwrap();
-                            (image, image_view)
+                                .unwrap()
                         })
                         .collect::<Vec<_>>();
 
-                    let fbos = image_view_pairs
+                    let fbos = image_views
                         .iter()
-                        .map(|&(_, ref image_view)| {
+                        .map(|image_view| {
                             device
                                 .create_framebuffer(&render_pass, vec![image_view], extent)
                                 .unwrap()
                         })
                         .collect();
 
-                    (image_view_pairs, fbos)
+                    (image_views, fbos)
                 }
                 Backbuffer::Framebuffer(fbo) => (Vec::new(), vec![fbo]),
             };
 
             // Store the new stuff.
-            swapchain_stuff = Some((swapchain, frame_images, framebuffers));
+            swapchain_stuff = Some((swapchain, frame_views, framebuffers));
         }
 
         // To access the swapchain, we need to get a mutable reference to the
         // contents of swapchain_stuff.
-        let (swapchain, _frame_images, framebuffers) = swapchain_stuff.as_mut().unwrap();
+        let (swapchain, _frame_views, framebuffers) = swapchain_stuff.as_mut().unwrap();
 
         device.reset_fence(&frame_fence);
         command_pool.reset();
