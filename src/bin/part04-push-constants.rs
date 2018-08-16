@@ -311,7 +311,7 @@ fn main() {
         });
 
         if (resizing || quitting) && swapchain_stuff.is_some() {
-            let (swapchain, frame_images, framebuffers) = swapchain_stuff.take().unwrap();
+            let (swapchain, frame_views, framebuffers) = swapchain_stuff.take().unwrap();
 
             device.wait_idle().unwrap();
             command_pool.reset();
@@ -320,7 +320,7 @@ fn main() {
                 device.destroy_framebuffer(framebuffer);
             }
 
-            for (_, image_view) in frame_images {
+            for image_view in frame_views {
                 device.destroy_image_view(image_view);
             }
             device.destroy_swapchain(swapchain);
@@ -350,7 +350,7 @@ fn main() {
                 device.create_swapchain(&mut surface, swap_config, None, &extent)
             };
 
-            let (frame_images, framebuffers) = match backbuffer {
+            let (frame_views, framebuffers) = match backbuffer {
                 Backbuffer::Images(images) => {
                     let extent = Extent {
                         width,
@@ -364,10 +364,10 @@ fn main() {
                         layers: 0..1,
                     };
 
-                    let image_view_pairs = images
+                    let image_views = images
                         .into_iter()
                         .map(|image| {
-                            let image_view = device
+                            device
                                 .create_image_view(
                                     &image,
                                     ViewKind::D2,
@@ -375,26 +375,25 @@ fn main() {
                                     Swizzle::NO,
                                     color_range.clone(),
                                 )
-                                .unwrap();
-                            (image, image_view)
+                                .unwrap()
                         })
                         .collect::<Vec<_>>();
 
-                    let fbos = image_view_pairs
+                    let fbos = image_views
                         .iter()
-                        .map(|&(_, ref image_view)| {
+                        .map(|image_view| {
                             device
                                 .create_framebuffer(&render_pass, vec![image_view], extent)
                                 .unwrap()
                         })
                         .collect();
 
-                    (image_view_pairs, fbos)
+                    (image_views, fbos)
                 }
                 Backbuffer::Framebuffer(fbo) => (Vec::new(), vec![fbo]),
             };
 
-            swapchain_stuff = Some((swapchain, frame_images, framebuffers));
+            swapchain_stuff = Some((swapchain, frame_views, framebuffers));
         }
 
         let (width, height) = window_size;
@@ -416,7 +415,7 @@ fn main() {
             }],
         );
 
-        let (swapchain, _frame_images, framebuffers) = swapchain_stuff.as_mut().unwrap();
+        let (swapchain, _frame_views, framebuffers) = swapchain_stuff.as_mut().unwrap();
 
         device.reset_fence(&frame_fence);
         command_pool.reset();
