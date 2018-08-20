@@ -4,15 +4,15 @@ version = "0.1.0"
 authors = ["Claire Harris <wishing.engine@gmail.com>"]
 
 [dependencies]
-winit = "=0.16.2"
+winit = "=0.17.2"
 
 [dependencies.gfx-hal]
 git = "https://github.com/gfx-rs/gfx"
-rev = "d428a5d5"
+rev = "16feb392"
 
 [dependencies.gfx-backend-metal]
 git = "https://github.com/gfx-rs/gfx"
-rev = "d428a5d5"
+rev = "16feb392"
 
 [build-dependencies]
 glsl-to-spirv = "=0.1.6"
