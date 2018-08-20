@@ -64,9 +64,7 @@ fn main() {
 
     let physical_device = &adapter.physical_device;
 
-    let (_, formats, _) = {
-        surface.compatibility(physical_device)
-    };
+    let (_, formats, _) = surface.compatibility(physical_device);
 
     let surface_color_format = {
         match formats {

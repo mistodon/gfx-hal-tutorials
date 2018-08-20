@@ -76,9 +76,7 @@ fn main() {
 
     let physical_device = &adapter.physical_device;
 
-    let (_, formats, _) = {
-        surface.compatibility(physical_device)
-    };
+    let (_, formats, _) = surface.compatibility(physical_device);
 
     let surface_color_format = {
         match formats {
@@ -211,28 +209,6 @@ fn main() {
             .unwrap()
     };
 
-    let memory_types = physical_device.memory_properties().memory_types;
-
-    let (vertex_buffer, vertex_buffer_memory) = utils::create_buffer::<Backend, Vertex>(
-        &device,
-        &memory_types,
-        Properties::CPU_VISIBLE,
-        buffer::Usage::VERTEX,
-        MESH,
-    );
-
-
-    // TODO: Explain both buffer and default value
-    let (uniform_buffer, mut uniform_memory) = utils::create_buffer::<Backend, UniformBlock>(
-        &device,
-        &memory_types,
-        Properties::CPU_VISIBLE,
-        buffer::Usage::UNIFORM,
-        &[UniformBlock {
-            projection: Default::default(),
-        }],
-    );
-
     // TODO: explain the pool and parameters
     let mut desc_pool = device.create_descriptor_pool(
         1,
@@ -244,6 +220,27 @@ fn main() {
 
     // TODO: explain
     let desc_set = desc_pool.allocate_set(&set_layout).unwrap();
+
+    let memory_types = physical_device.memory_properties().memory_types;
+
+    let (vertex_buffer, vertex_buffer_memory) = utils::create_buffer::<Backend, Vertex>(
+        &device,
+        &memory_types,
+        Properties::CPU_VISIBLE,
+        buffer::Usage::VERTEX,
+        MESH,
+    );
+
+    // TODO: Explain both buffer and default value
+    let (uniform_buffer, mut uniform_memory) = utils::create_buffer::<Backend, UniformBlock>(
+        &device,
+        &memory_types,
+        Properties::CPU_VISIBLE,
+        buffer::Usage::UNIFORM,
+        &[UniformBlock {
+            projection: Default::default(),
+        }],
+    );
 
     // TODO: What is this even?
     device.write_descriptor_sets(vec![DescriptorSetWrite {

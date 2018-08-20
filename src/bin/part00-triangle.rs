@@ -77,9 +77,7 @@ fn main() {
     // We want to get the capabilities (`caps`) of the surface, which tells us what
     // parameters we can use for our swapchain later. We also get a list of supported
     // image formats for our surface.
-    let (caps, formats, _) = {
-        surface.compatibility(physical_device)
-    };
+    let (caps, formats, _) = surface.compatibility(physical_device);
 
     let surface_color_format = {
         // We must pick a color format from the list of supported formats. If there
