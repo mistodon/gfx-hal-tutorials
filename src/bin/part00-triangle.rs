@@ -72,11 +72,15 @@ fn main() {
         max_buffers,
     );
 
-    let physical_device = &adapter.physical_device;
-    let (caps, formats, _) = surface.compatibility(physical_device);
+    // We want to get the capabilities (`caps`) of the surface, which tells us what
+    // parameters we can use for our swapchain later. We also get a list of supported
+    // image formats for our surface.
+    let (caps, formats, _) = {
+        let physical_device = &adapter.physical_device;
+        surface.compatibility(physical_device)
+    };
 
     let surface_color_format = {
-
         // We must pick a color format from the list of supported formats. If there
         // is no list, we default to Rgba8Srgb.
         match formats {
@@ -197,10 +201,12 @@ fn main() {
     // In a rare instance of the API creating resources for you, the backbuffer
     // contains the actual images that make up the swapchain. We'll create image
     // views and framebuffers from these next.
+    //
+    // We also want to store the swapchain's extent, which tells us how big each
+    // image is.
     let (mut swapchain, backbuffer, swapchain_extent) = {
         let swap_config = SwapchainConfig::from_caps(&caps, surface_color_format);
         let extent = swap_config.extent.to_extent();
-        println!("{:?}", extent);
 
         let (swapchain, backbuffer) = device.create_swapchain(&mut surface, swap_config, None);
 
