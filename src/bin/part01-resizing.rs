@@ -27,13 +27,15 @@ fn main() {
     let mut command_pool =
         device.create_command_pool_typed(&queue_group, CommandPoolCreateFlags::empty(), 16);
 
+    let physical_device = &adapter.physical_device;
+    let (_, formats, _) = {
+        surface.compatibility(physical_device)
+    };
+
     // This could theoretically change between swapchain creations, but we're going
     // to ignore that for now so that we only have to build our render pass and
     // pipeline once.
     let surface_color_format = {
-        let physical_device = &adapter.physical_device;
-        let (_, formats, _) = surface.compatibility(physical_device);
-
         match formats {
             Some(choices) => choices
                 .into_iter()
@@ -136,7 +138,7 @@ fn main() {
     // We're using an Option containing a tuple so that we can drop all three items
     // together. We're also taking advantage of type inference as much as possible
     // so we don't have to know the specific type names just yet.
-    let mut swapchain_stuff: Option<(_, _, _)> = None;
+    let mut swapchain_stuff: Option<(_, _, _, _)> = None;
 
     loop {
         let mut quitting = false;
@@ -171,7 +173,7 @@ fn main() {
         if (resizing || quitting) && swapchain_stuff.is_some() {
             // Take ownership over the old stuff so we can destroy it.
             // The value of swapchain_stuff is now `None`.
-            let (swapchain, frame_views, framebuffers) = swapchain_stuff.take().unwrap();
+            let (swapchain, _extent, frame_views, framebuffers) = swapchain_stuff.take().unwrap();
 
             // We want to wait for all queues to be idle and reset the command pool,
             // so that we know that no commands are being executed while we destroy
@@ -196,41 +198,19 @@ fn main() {
             break;
         }
 
-        let window_size: (u32, u32) = window
-            .get_inner_size()
-            .unwrap()
-            .to_physical(window.get_hidpi_factor())
-            .into();
-
         // If we don't have a swapchain here, we destroyed it and we need to
         // recreate it.
         if swapchain_stuff.is_none() {
-            // On the currently tested version of gfx-hal, you need to recreate
-            // the surface. I'm unsure if this is a bug or not.
-            surface = instance.create_surface(&window);
-
-            let (width, height) = window_size;
+            let (caps, _, _) = surface.compatibility(physical_device);
 
             // Here we just create the swapchain, image views, and framebuffers
             // like we did in part 00, and store them in swapchain_stuff.
-            let (swapchain, backbuffer) = {
-                let extent = Extent2D { width, height };
-
-                let swap_config = SwapchainConfig::new()
-                    .with_color(surface_color_format)
-                    .with_image_usage(image::Usage::COLOR_ATTACHMENT);
-
-                device.create_swapchain(&mut surface, swap_config, None, &extent)
-            };
+            let swap_config = SwapchainConfig::from_caps(&caps, surface_color_format);
+            let extent = swap_config.extent.to_extent();
+            let (swapchain, backbuffer) = device.create_swapchain(&mut surface, swap_config, None);
 
             let (frame_views, framebuffers) = match backbuffer {
                 Backbuffer::Images(images) => {
-                    let extent = Extent {
-                        width,
-                        height,
-                        depth: 1,
-                    };
-
                     let color_range = SubresourceRange {
                         aspects: Aspects::COLOR,
                         levels: 0..1,
@@ -267,13 +247,13 @@ fn main() {
             };
 
             // Store the new stuff.
-            swapchain_stuff = Some((swapchain, frame_views, framebuffers));
+            swapchain_stuff = Some((swapchain, extent, frame_views, framebuffers));
         }
 
         // To access the swapchain, we need to get a mutable reference to the
         // contents of swapchain_stuff. We know it's safe to unwrap because we just
         // checked it wasn't `None`.
-        let (swapchain, _frame_views, framebuffers) = swapchain_stuff.as_mut().unwrap();
+        let (swapchain, extent, _frame_views, framebuffers) = swapchain_stuff.as_mut().unwrap();
 
         // The rest of our rendering happens exactly the same way as before.
 
@@ -287,13 +267,12 @@ fn main() {
         let finished_command_buffer = {
             let mut command_buffer = command_pool.acquire_command_buffer(false);
 
-            let (width, height) = window_size;
             let viewport = Viewport {
                 rect: Rect {
                     x: 0,
                     y: 0,
-                    w: width as i16,
-                    h: height as i16,
+                    w: extent.width as i16,
+                    h: extent.height as i16,
                 },
                 depth: 0.0..1.0,
             };
