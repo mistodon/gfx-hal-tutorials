@@ -201,7 +201,7 @@ fn main() {
     // the end.
     //
     // TODO: ???
-    let memory_types = adapter.physical_device.memory_properties().memory_types;
+    let memory_types = physical_device.memory_properties().memory_types;
 
     let (vertex_buffer, vertex_buffer_memory) = {
         // TODO: Explain all of this pish
