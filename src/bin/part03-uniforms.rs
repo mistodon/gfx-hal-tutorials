@@ -143,9 +143,6 @@ fn main() {
         MESH,
     );
 
-    let frame_semaphore = device.create_semaphore();
-    let frame_fence = device.create_fence(false);
-
     let surface_color_format = {
         let physical_device = &adapter.physical_device;
         let (_, formats, _) = surface.compatibility(physical_device);
@@ -256,6 +253,9 @@ fn main() {
             .unwrap()
     };
 
+    let frame_semaphore = device.create_semaphore();
+    let frame_fence = device.create_fence(false);
+
     let mut swapchain_stuff: Option<(_, _, _)> = None;
 
     loop {
@@ -337,11 +337,11 @@ fn main() {
                     };
 
                     let image_views = images
-                        .into_iter()
+                        .iter()
                         .map(|image| {
                             device
                                 .create_image_view(
-                                    &image,
+                                    image,
                                     ViewKind::D2,
                                     surface_color_format,
                                     Swizzle::NO,
@@ -437,7 +437,7 @@ fn main() {
 
         let submission = Submission::new()
             .wait_on(&[(&frame_semaphore, PipelineStage::BOTTOM_OF_PIPE)])
-            .submit(Some(finished_command_buffer));
+            .submit(vec![finished_command_buffer]);
 
         queue_group.queues[0].submit(submission, Some(&frame_fence));
 

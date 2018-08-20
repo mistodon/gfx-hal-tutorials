@@ -1,3 +1,5 @@
+// We're going to spring for a tiny bit of code reuse, so we'll need to include the
+// library crate.
 extern crate gfx_hal_tutorials;
 
 extern crate gfx_backend_metal as backend;
@@ -6,12 +8,10 @@ extern crate winit;
 
 // Saves us from having to import gfx types every time.
 use gfx_hal_tutorials::prelude::*;
-
 use winit::{Event, EventsLoop, KeyboardInput, VirtualKeyCode, WindowBuilder, WindowEvent};
 
 fn main() {
     let mut events_loop = EventsLoop::new();
-
     let window = WindowBuilder::new()
         .with_title("Part 01: Resizing")
         .with_dimensions((256, 256).into())
@@ -19,30 +19,13 @@ fn main() {
         .unwrap();
 
     let instance = backend::Instance::create("Part 01: Resizing", 1);
-
     let mut surface = instance.create_surface(&window);
-
     let mut adapter = instance.enumerate_adapters().remove(0);
-
     let (device, mut queue_group) = adapter
         .open_with::<_, Graphics>(1, |family| surface.supports_queue_family(family))
         .unwrap();
-
     let mut command_pool =
         device.create_command_pool_typed(&queue_group, CommandPoolCreateFlags::empty(), 16);
-
-    let vertex_shader_module = {
-        let spirv = include_bytes!("../../assets/gen/shaders/part00.vert.spv");
-        device.create_shader_module(spirv).unwrap()
-    };
-
-    let fragment_shader_module = {
-        let spirv = include_bytes!("../../assets/gen/shaders/part00.frag.spv");
-        device.create_shader_module(spirv).unwrap()
-    };
-
-    let frame_semaphore = device.create_semaphore();
-    let frame_fence = device.create_fence(false);
 
     // This could theoretically change between swapchain creations, but we're going
     // to ignore that for now so that we only have to build our render pass and
@@ -52,11 +35,11 @@ fn main() {
         let (_, formats, _) = surface.compatibility(physical_device);
 
         match formats {
-            None => Format::Rgba8Srgb,
-            Some(options) => options
+            Some(choices) => choices
                 .into_iter()
                 .find(|format| format.base_format().1 == ChannelType::Srgb)
                 .unwrap(),
+            None => Format::Rgba8Srgb,
         }
     };
 
@@ -88,6 +71,16 @@ fn main() {
     };
 
     let pipeline_layout = device.create_pipeline_layout(&[], &[]);
+
+    let vertex_shader_module = {
+        let spirv = include_bytes!("../../assets/gen/shaders/part00.vert.spv");
+        device.create_shader_module(spirv).unwrap()
+    };
+
+    let fragment_shader_module = {
+        let spirv = include_bytes!("../../assets/gen/shaders/part00.frag.spv");
+        device.create_shader_module(spirv).unwrap()
+    };
 
     let pipeline = {
         let vs_entry = EntryPoint::<backend::Backend> {
@@ -133,11 +126,16 @@ fn main() {
             .unwrap()
     };
 
+    let frame_semaphore = device.create_semaphore();
+    let frame_fence = device.create_fence(false);
+
     // We're going to defer the construction of our swapchain, frame images, and
     // framebuffers until the mainloop, because we will need to repeat it whenever
-    // the window resizes.
+    // the window resizes. For now we leave them empty.
     //
-    // For now we leave them empty.
+    // We're using an Option containing a tuple so that we can drop all three items
+    // together. We're also taking advantage of type inference as much as possible
+    // so we don't have to know the specific type names just yet.
     let mut swapchain_stuff: Option<(_, _, _)> = None;
 
     loop {
@@ -157,7 +155,8 @@ fn main() {
                         ..
                     } => quitting = true,
 
-                    // We need to recreate our swapchain if we resize, so track it.
+                    // We need to recreate our swapchain if we resize, so we'll set
+                    // a flag when that happens.
                     WindowEvent::Resized(_) => {
                         resizing = true;
                     }
@@ -167,8 +166,8 @@ fn main() {
             }
         });
 
-        // We need to destroy things if we're resizing - because we'll recreate them
-        // or if quitting - because we want them destroyed for good.
+        // We need to destroy things if we're resizing because we'll recreate them.
+        // We also need to destroy them if we're quitting, so we can clean them up.
         if (resizing || quitting) && swapchain_stuff.is_some() {
             // Take ownership over the old stuff so we can destroy it.
             // The value of swapchain_stuff is now `None`.
@@ -188,10 +187,12 @@ fn main() {
             for image_view in frame_views {
                 device.destroy_image_view(image_view);
             }
+
             device.destroy_swapchain(swapchain);
         }
 
         if quitting {
+            // At this point, our swapchain is destroyed and will not be recreated.
             break;
         }
 
@@ -208,11 +209,12 @@ fn main() {
             // the surface. I'm unsure if this is a bug or not.
             surface = instance.create_surface(&window);
 
-            // Here we just create the swapchain, frame images, and framebuffers
-            // like we did in part 00, and store them in swapchain_stuff.
             let (width, height) = window_size;
+
+            // Here we just create the swapchain, image views, and framebuffers
+            // like we did in part 00, and store them in swapchain_stuff.
             let (swapchain, backbuffer) = {
-                let extent = { Extent2D { width, height } };
+                let extent = Extent2D { width, height };
 
                 let swap_config = SwapchainConfig::new()
                     .with_color(surface_color_format)
@@ -236,11 +238,11 @@ fn main() {
                     };
 
                     let image_views = images
-                        .into_iter()
+                        .iter()
                         .map(|image| {
                             device
                                 .create_image_view(
-                                    &image,
+                                    image,
                                     ViewKind::D2,
                                     surface_color_format,
                                     Swizzle::NO,
@@ -269,8 +271,11 @@ fn main() {
         }
 
         // To access the swapchain, we need to get a mutable reference to the
-        // contents of swapchain_stuff.
+        // contents of swapchain_stuff. We know it's safe to unwrap because we just
+        // checked it wasn't `None`.
         let (swapchain, _frame_views, framebuffers) = swapchain_stuff.as_mut().unwrap();
+
+        // The rest of our rendering happens exactly the same way as before.
 
         device.reset_fence(&frame_fence);
         command_pool.reset();
@@ -314,7 +319,7 @@ fn main() {
 
         let submission = Submission::new()
             .wait_on(&[(&frame_semaphore, PipelineStage::BOTTOM_OF_PIPE)])
-            .submit(Some(finished_command_buffer));
+            .submit(vec![finished_command_buffer]);
 
         queue_group.queues[0].submit(submission, Some(&frame_fence));
 
