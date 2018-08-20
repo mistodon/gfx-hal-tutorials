@@ -131,11 +131,11 @@ fn main() {
     let frame_semaphore = device.create_semaphore();
     let frame_fence = device.create_fence(false);
 
-    // We're going to defer the construction of our swapchain, frame images, and
-    // framebuffers until the mainloop, because we will need to repeat it whenever
-    // the window resizes. For now we leave them empty.
+    // We're going to defer the construction of our swapchain, extent, image views,
+    // and framebuffers until the mainloop, because we will need to repeat it
+    // whenever the window resizes. For now we leave them empty.
     //
-    // We're using an Option containing a tuple so that we can drop all three items
+    // We're using an Option containing a tuple so that we can drop all four items
     // together. We're also taking advantage of type inference as much as possible
     // so we don't have to know the specific type names just yet.
     let mut swapchain_stuff: Option<(_, _, _, _)> = None;
