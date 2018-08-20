@@ -121,10 +121,12 @@ fn main() {
         (buffer, buffer_memory)
     };
 
-    let surface_color_format = {
+    let (caps, formats, _) = {
         let physical_device = &adapter.physical_device;
-        let (_, formats, _) = surface.compatibility(physical_device);
+        surface.compatibility(physical_device)
+    };
 
+    let surface_color_format = {
         match formats {
             None => Format::Rgba8Srgb,
             Some(options) => options
