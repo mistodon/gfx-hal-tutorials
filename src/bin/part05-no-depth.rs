@@ -12,17 +12,6 @@ use backend::Backend;
 use winit::{Event, EventsLoop, KeyboardInput, VirtualKeyCode, WindowBuilder, WindowEvent};
 
 #[derive(Debug, Clone, Copy)]
-struct UniformBlock {
-    projection: [[f32; 4]; 4],
-}
-
-#[derive(Debug, Clone, Copy)]
-struct PushConstants {
-    tint: [f32; 4],
-    position: [f32; 3],
-}
-
-#[derive(Debug, Clone, Copy)]
 struct Vertex {
     position: [f32; 3],
     color: [f32; 4],
@@ -55,9 +44,19 @@ const MESH: &[Vertex] = &[
     },
 ];
 
+#[derive(Debug, Clone, Copy)]
+struct UniformBlock {
+    projection: [[f32; 4]; 4],
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PushConstants {
+    tint: [f32; 4],
+    position: [f32; 3],
+}
+
 fn main() {
     let mut events_loop = EventsLoop::new();
-
     let window = WindowBuilder::new()
         .with_title("Part 05: Without depth testing")
         .with_dimensions((256, 256).into())
@@ -65,88 +64,25 @@ fn main() {
         .unwrap();
 
     let instance = backend::Instance::create("Part 05: Without depth testing", 1);
-
     let mut surface = instance.create_surface(&window);
-
     let mut adapter = instance.enumerate_adapters().remove(0);
-
     let (device, mut queue_group) = adapter
         .open_with::<_, Graphics>(1, |family| surface.supports_queue_family(family))
         .unwrap();
-
     let mut command_pool =
         device.create_command_pool_typed(&queue_group, CommandPoolCreateFlags::empty(), 16);
 
-    let vertex_shader_module = {
-        let spirv = include_bytes!("../../assets/gen/shaders/part04.vert.spv");
-        device.create_shader_module(spirv).unwrap()
-    };
+    let physical_device = &adapter.physical_device;
 
-    let fragment_shader_module = {
-        let spirv = include_bytes!("../../assets/gen/shaders/part04.frag.spv");
-        device.create_shader_module(spirv).unwrap()
-    };
-
-    let memory_types = adapter.physical_device.memory_properties().memory_types;
-
-    let set_layout = device.create_descriptor_set_layout(
-        &[DescriptorSetLayoutBinding {
-            binding: 0,
-            ty: DescriptorType::UniformBuffer,
-            count: 1,
-            stage_flags: ShaderStageFlags::VERTEX,
-            immutable_samplers: false,
-        }],
-        &[],
-    );
-
-    let mut desc_pool = device.create_descriptor_pool(
-        1,
-        &[DescriptorRangeDesc {
-            ty: DescriptorType::UniformBuffer,
-            count: 1,
-        }],
-    );
-
-    let desc_set = desc_pool.allocate_set(&set_layout).unwrap();
-
-    let (uniform_buffer, mut uniform_memory) = utils::create_buffer::<Backend, UniformBlock>(
-        &device,
-        &memory_types,
-        Properties::CPU_VISIBLE,
-        buffer::Usage::UNIFORM,
-        &[UniformBlock {
-            projection: Default::default(),
-        }],
-    );
-
-    device.write_descriptor_sets(vec![DescriptorSetWrite {
-        set: &desc_set,
-        binding: 0,
-        array_offset: 0,
-        descriptors: Some(Descriptor::Buffer(&uniform_buffer, None..None)),
-    }]);
-
-    let (vertex_buffer, vertex_buffer_memory) = utils::create_buffer::<Backend, Vertex>(
-        &device,
-        &memory_types,
-        Properties::CPU_VISIBLE,
-        buffer::Usage::VERTEX,
-        MESH,
-    );
-
-    let (caps, formats, _) = {
-        let physical_device = &adapter.physical_device;
-        surface.compatibility(physical_device)
-    };
+    let (_, formats, _) = surface.compatibility(physical_device);
 
     let surface_color_format = {
         match formats {
-            None => Format::Rgba8Srgb,
-            Some(options) => options
+            Some(choices) => choices
                 .into_iter()
                 .find(|format| format.base_format().1 == ChannelType::Srgb)
                 .unwrap(),
+            None => Format::Rgba8Srgb,
         }
     };
 
@@ -177,6 +113,17 @@ fn main() {
         device.create_render_pass(&[color_attachment], &[subpass], &[dependency])
     };
 
+    let set_layout = device.create_descriptor_set_layout(
+        &[DescriptorSetLayoutBinding {
+            binding: 0,
+            ty: DescriptorType::UniformBuffer,
+            count: 1,
+            stage_flags: ShaderStageFlags::VERTEX,
+            immutable_samplers: false,
+        }],
+        &[],
+    );
+
     let num_push_constants = utils::push_constant_size::<PushConstants>() as u32;
 
     let pipeline_layout = device.create_pipeline_layout(
@@ -184,30 +131,15 @@ fn main() {
         &[(ShaderStageFlags::VERTEX, 0..num_push_constants)],
     );
 
-    // These shapes are not in order of depth, so without depth testing they
-    // will draw in an irregular order.
-    let diamonds = vec![
-        PushConstants {
-            tint: [0.6, 0.6, 0.6, 1.0],
-            position: [-0.1, 0.0, 0.3],
-        },
-        PushConstants {
-            tint: [0.2, 0.2, 0.2, 1.0],
-            position: [0.3, 0.8, 0.5],
-        },
-        PushConstants {
-            tint: [0.4, 0.4, 0.4, 1.0],
-            position: [0.1, 0.4, 0.4],
-        },
-        PushConstants {
-            tint: [1.0, 1.0, 1.0, 1.0],
-            position: [-0.5, -0.8, 0.1],
-        },
-        PushConstants {
-            tint: [0.8, 0.8, 0.8, 1.0],
-            position: [-0.3, -0.4, 0.2],
-        },
-    ];
+    let vertex_shader_module = {
+        let spirv = include_bytes!("../../assets/gen/shaders/part04.vert.spv");
+        device.create_shader_module(spirv).unwrap()
+    };
+
+    let fragment_shader_module = {
+        let spirv = include_bytes!("../../assets/gen/shaders/part04.frag.spv");
+        device.create_shader_module(spirv).unwrap()
+    };
 
     let pipeline = {
         let vs_entry = EntryPoint::<backend::Backend> {
@@ -277,10 +209,72 @@ fn main() {
             .unwrap()
     };
 
+    let mut desc_pool = device.create_descriptor_pool(
+        1,
+        &[DescriptorRangeDesc {
+            ty: DescriptorType::UniformBuffer,
+            count: 1,
+        }],
+    );
+
+    let desc_set = desc_pool.allocate_set(&set_layout).unwrap();
+
+    let memory_types = physical_device.memory_properties().memory_types;
+
+    let (vertex_buffer, vertex_buffer_memory) = utils::create_buffer::<Backend, Vertex>(
+        &device,
+        &memory_types,
+        Properties::CPU_VISIBLE,
+        buffer::Usage::VERTEX,
+        MESH,
+    );
+
+    let (uniform_buffer, mut uniform_memory) = utils::create_buffer::<Backend, UniformBlock>(
+        &device,
+        &memory_types,
+        Properties::CPU_VISIBLE,
+        buffer::Usage::UNIFORM,
+        &[UniformBlock {
+            projection: Default::default(),
+        }],
+    );
+
+    device.write_descriptor_sets(vec![DescriptorSetWrite {
+        set: &desc_set,
+        binding: 0,
+        array_offset: 0,
+        descriptors: Some(Descriptor::Buffer(&uniform_buffer, None..None)),
+    }]);
+
+    // These shapes are not in order of depth, so without depth testing they
+    // will draw in an irregular order.
+    let diamonds = vec![
+        PushConstants {
+            tint: [0.6, 0.6, 0.6, 1.0],
+            position: [-0.1, 0.0, 0.3],
+        },
+        PushConstants {
+            tint: [0.2, 0.2, 0.2, 1.0],
+            position: [0.3, 0.8, 0.5],
+        },
+        PushConstants {
+            tint: [0.4, 0.4, 0.4, 1.0],
+            position: [0.1, 0.4, 0.4],
+        },
+        PushConstants {
+            tint: [1.0, 1.0, 1.0, 1.0],
+            position: [-0.5, -0.8, 0.1],
+        },
+        PushConstants {
+            tint: [0.8, 0.8, 0.8, 1.0],
+            position: [-0.3, -0.4, 0.2],
+        },
+    ];
+
     let frame_semaphore = device.create_semaphore();
     let frame_fence = device.create_fence(false);
 
-    let mut swapchain_stuff: Option<(_, _, _)> = None;
+    let mut swapchain_stuff: Option<(_, _, _, _)> = None;
 
     loop {
         let mut quitting = false;
@@ -307,7 +301,7 @@ fn main() {
         });
 
         if (resizing || quitting) && swapchain_stuff.is_some() {
-            let (swapchain, frame_views, framebuffers) = swapchain_stuff.take().unwrap();
+            let (swapchain, _extent, frame_views, framebuffers) = swapchain_stuff.take().unwrap();
 
             device.wait_idle().unwrap();
             command_pool.reset();
@@ -319,6 +313,7 @@ fn main() {
             for image_view in frame_views {
                 device.destroy_image_view(image_view);
             }
+
             device.destroy_swapchain(swapchain);
         }
 
@@ -326,34 +321,15 @@ fn main() {
             break;
         }
 
-        let window_size: (u32, u32) = window
-            .get_inner_size()
-            .unwrap()
-            .to_physical(window.get_hidpi_factor())
-            .into();
-
         if swapchain_stuff.is_none() {
-            surface = instance.create_surface(&window);
+            let (caps, _, _) = surface.compatibility(physical_device);
 
-            let (width, height) = window_size;
-            let (swapchain, backbuffer) = {
-                let extent = { Extent2D { width, height } };
-
-                let swap_config = SwapchainConfig::new()
-                    .with_color(surface_color_format)
-                    .with_image_usage(image::Usage::COLOR_ATTACHMENT);
-
-                device.create_swapchain(&mut surface, swap_config, None, &extent)
-            };
+            let swap_config = SwapchainConfig::from_caps(&caps, surface_color_format);
+            let extent = swap_config.extent.to_extent();
+            let (swapchain, backbuffer) = device.create_swapchain(&mut surface, swap_config, None);
 
             let (frame_views, framebuffers) = match backbuffer {
                 Backbuffer::Images(images) => {
-                    let extent = Extent {
-                        width,
-                        height,
-                        depth: 1,
-                    };
-
                     let color_range = SubresourceRange {
                         aspects: Aspects::COLOR,
                         levels: 0..1,
@@ -389,10 +365,12 @@ fn main() {
                 Backbuffer::Framebuffer(fbo) => (Vec::new(), vec![fbo]),
             };
 
-            swapchain_stuff = Some((swapchain, frame_views, framebuffers));
+            swapchain_stuff = Some((swapchain, extent, frame_views, framebuffers));
         }
 
-        let (width, height) = window_size;
+        let (swapchain, extent, _frame_views, framebuffers) = swapchain_stuff.as_mut().unwrap();
+
+        let (width, height) = (extent.width, extent.height);
         let aspect_corrected_x = height as f32 / width as f32;
         let zoom = 0.5;
         let x_scale = aspect_corrected_x * zoom;
@@ -411,8 +389,6 @@ fn main() {
             }],
         );
 
-        let (swapchain, _frame_views, framebuffers) = swapchain_stuff.as_mut().unwrap();
-
         device.reset_fence(&frame_fence);
         command_pool.reset();
 
@@ -427,8 +403,8 @@ fn main() {
                 rect: Rect {
                     x: 0,
                     y: 0,
-                    w: width as i16,
-                    h: height as i16,
+                    w: extent.width as i16,
+                    h: extent.height as i16,
                 },
                 depth: 0.0..1.0,
             };
