@@ -9,7 +9,7 @@ extern crate winit;
 use gfx_hal::{
     command::{ClearColor, ClearValue},
     format::{Aspects, ChannelType, Format, Swizzle},
-    image::{self, Access, Extent, Layout, SubresourceRange, ViewKind},
+    image::{Access, Layout, SubresourceRange, ViewKind},
     pass::{
         Attachment, AttachmentLoadOp, AttachmentOps, AttachmentStoreOp, Subpass, SubpassDependency,
         SubpassDesc, SubpassRef,
@@ -20,7 +20,6 @@ use gfx_hal::{
         PipelineStage, Rasterizer, Rect, Viewport,
     },
     queue::Submission,
-    window::Extent2D,
     Backbuffer, Device, FrameSync, Graphics, Instance, Primitive, Surface, SwapImageIndex,
     Swapchain, SwapchainConfig,
 };
@@ -73,9 +72,10 @@ fn main() {
         max_buffers,
     );
 
+    let physical_device = &adapter.physical_device;
+    let (caps, formats, _) = surface.compatibility(physical_device);
+
     let surface_color_format = {
-        let physical_device = &adapter.physical_device;
-        let (_, formats, _) = surface.compatibility(physical_device);
 
         // We must pick a color format from the list of supported formats. If there
         // is no list, we default to Rgba8Srgb.
@@ -190,12 +190,6 @@ fn main() {
     // We expect to have to rebuild these when the window is resized -
     // however we're going to ignore that for this example.
 
-    let window_size: (u32, u32) = window
-        .get_inner_size()
-        .unwrap()
-        .to_physical(window.get_hidpi_factor())
-        .into();
-
     // A swapchain is effectively a chain of images (commonly two) that will be
     // displayed to the screen. While one is being displayed, we can draw to one
     // of the others.
@@ -203,17 +197,14 @@ fn main() {
     // In a rare instance of the API creating resources for you, the backbuffer
     // contains the actual images that make up the swapchain. We'll create image
     // views and framebuffers from these next.
-    let (mut swapchain, backbuffer) = {
-        let extent = {
-            let (width, height) = window_size;
-            Extent2D { width, height }
-        };
+    let (mut swapchain, backbuffer, swapchain_extent) = {
+        let swap_config = SwapchainConfig::from_caps(&caps, surface_color_format);
+        let extent = swap_config.extent.to_extent();
+        println!("{:?}", extent);
 
-        let swap_config = SwapchainConfig::new()
-            .with_color(surface_color_format)
-            .with_image_usage(image::Usage::COLOR_ATTACHMENT);
+        let (swapchain, backbuffer) = device.create_swapchain(&mut surface, swap_config, None);
 
-        device.create_swapchain(&mut surface, swap_config, None, &extent)
+        (swapchain, backbuffer, extent)
     };
 
     // You can think of an image as just the raw binary of the literal image, with
@@ -233,13 +224,6 @@ fn main() {
     // swapchain.
     let (frame_views, framebuffers) = match backbuffer {
         Backbuffer::Images(images) => {
-            let (width, height) = window_size;
-            let extent = Extent {
-                width,
-                height,
-                depth: 1,
-            };
-
             let color_range = SubresourceRange {
                 aspects: Aspects::COLOR,
                 levels: 0..1,
@@ -265,7 +249,7 @@ fn main() {
                 .iter()
                 .map(|image_view| {
                     device
-                        .create_framebuffer(&render_pass, vec![image_view], extent)
+                        .create_framebuffer(&render_pass, vec![image_view], swapchain_extent)
                         .unwrap()
                 })
                 .collect();
@@ -333,18 +317,12 @@ fn main() {
 
             // Define a rectangle on screen to draw into.
             // In this case, the whole screen.
-            let (width, height): (u32, u32) = window
-                .get_inner_size()
-                .unwrap()
-                .to_physical(window.get_hidpi_factor())
-                .into();
-
             let viewport = Viewport {
                 rect: Rect {
                     x: 0,
                     y: 0,
-                    w: width as i16,
-                    h: height as i16,
+                    w: swapchain_extent.width as i16,
+                    h: swapchain_extent.height as i16,
                 },
                 depth: 0.0..1.0,
             };
