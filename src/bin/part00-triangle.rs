@@ -72,11 +72,12 @@ fn main() {
         max_buffers,
     );
 
+    let physical_device = &adapter.physical_device;
+
     // We want to get the capabilities (`caps`) of the surface, which tells us what
     // parameters we can use for our swapchain later. We also get a list of supported
     // image formats for our surface.
     let (caps, formats, _) = {
-        let physical_device = &adapter.physical_device;
         surface.compatibility(physical_device)
     };
 
@@ -204,14 +205,11 @@ fn main() {
     //
     // We also want to store the swapchain's extent, which tells us how big each
     // image is.
-    let (mut swapchain, backbuffer, swapchain_extent) = {
-        let swap_config = SwapchainConfig::from_caps(&caps, surface_color_format);
-        let extent = swap_config.extent.to_extent();
+    let swap_config = SwapchainConfig::from_caps(&caps, surface_color_format);
 
-        let (swapchain, backbuffer) = device.create_swapchain(&mut surface, swap_config, None);
+    let extent = swap_config.extent.to_extent();
 
-        (swapchain, backbuffer, extent)
-    };
+    let (mut swapchain, backbuffer) = device.create_swapchain(&mut surface, swap_config, None);
 
     // You can think of an image as just the raw binary of the literal image, with
     // additional metadata about the format.
@@ -255,7 +253,7 @@ fn main() {
                 .iter()
                 .map(|image_view| {
                     device
-                        .create_framebuffer(&render_pass, vec![image_view], swapchain_extent)
+                        .create_framebuffer(&render_pass, vec![image_view], extent)
                         .unwrap()
                 })
                 .collect();
@@ -327,8 +325,8 @@ fn main() {
                 rect: Rect {
                     x: 0,
                     y: 0,
-                    w: swapchain_extent.width as i16,
-                    h: swapchain_extent.height as i16,
+                    w: extent.width as i16,
+                    h: extent.height as i16,
                 },
                 depth: 0.0..1.0,
             };

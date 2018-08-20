@@ -28,6 +28,8 @@ fn main() {
         device.create_command_pool_typed(&queue_group, CommandPoolCreateFlags::empty(), 16);
 
     let physical_device = &adapter.physical_device;
+
+    // We don't need the capabilities just yet, since we use that for the swapchain.
     let (_, formats, _) = {
         surface.compatibility(physical_device)
     };
