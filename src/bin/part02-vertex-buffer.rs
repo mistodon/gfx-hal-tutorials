@@ -5,7 +5,6 @@ extern crate gfx_hal;
 extern crate winit;
 
 use gfx_hal_tutorials::prelude::*;
-
 use winit::{Event, EventsLoop, KeyboardInput, VirtualKeyCode, WindowBuilder, WindowEvent};
 
 // To store a mesh in a vertex buffer, we first need a vertex format.
@@ -48,7 +47,6 @@ const MESH: &[Vertex] = &[
 
 fn main() {
     let mut events_loop = EventsLoop::new();
-
     let window = WindowBuilder::new()
         .with_title("Part 02: Vertex buffers")
         .with_dimensions((256, 256).into())
@@ -56,83 +54,27 @@ fn main() {
         .unwrap();
 
     let instance = backend::Instance::create("Part 02: Vertex buffers", 1);
-
     let mut surface = instance.create_surface(&window);
-
     let mut adapter = instance.enumerate_adapters().remove(0);
-
     let (device, mut queue_group) = adapter
         .open_with::<_, Graphics>(1, |family| surface.supports_queue_family(family))
         .unwrap();
-
     let mut command_pool =
         device.create_command_pool_typed(&queue_group, CommandPoolCreateFlags::empty(), 16);
 
-    // We're using new shaders for this tutorial - check out the source in
-    // source_assets/shaders/part02.*
-    let vertex_shader_module = {
-        let spirv = include_bytes!("../../assets/gen/shaders/part02.vert.spv");
-        device.create_shader_module(spirv).unwrap()
-    };
+    let physical_device = &adapter.physical_device;
 
-    let fragment_shader_module = {
-        let spirv = include_bytes!("../../assets/gen/shaders/part02.frag.spv");
-        device.create_shader_module(spirv).unwrap()
-    };
-
-    // TODO: ???
-    let memory_types = adapter.physical_device.memory_properties().memory_types;
-
-    // Now lets create a vertex buffer to upload our mesh data into. We'll need both
-    // the buffer, and the memory it's using so we can destroy and deallocate them at
-    // the end.
-    let (vertex_buffer, vertex_buffer_memory) = {
-        // TODO: Explain all of this pish
-        let item_count = MESH.len();
-        let stride = std::mem::size_of::<Vertex>() as u64;
-        let buffer_len = item_count as u64 * stride;
-        let unbound_buffer = device
-            .create_buffer(buffer_len, buffer::Usage::VERTEX)
-            .unwrap();
-        let req = device.get_buffer_requirements(&unbound_buffer);
-        let upload_type = memory_types
-            .iter()
-            .enumerate()
-            .position(|(id, ty)| {
-                req.type_mask & (1 << id) != 0 && ty.properties.contains(Properties::CPU_VISIBLE)
-            })
-            .unwrap()
-            .into();
-
-        let buffer_memory = device.allocate_memory(upload_type, req.size).unwrap();
-        let buffer = device
-            .bind_buffer_memory(&buffer_memory, 0, unbound_buffer)
-            .unwrap();
-
-        // Fill the buffer with vertex data
-        {
-            let mut dest = device
-                .acquire_mapping_writer::<Vertex>(&buffer_memory, 0..buffer_len)
-                .unwrap();
-            dest.copy_from_slice(MESH);
-            device.release_mapping_writer(dest);
-        }
-
-        (buffer, buffer_memory)
-    };
-
-    let (caps, formats, _) = {
-        let physical_device = &adapter.physical_device;
+    let (_, formats, _) = {
         surface.compatibility(physical_device)
     };
 
     let surface_color_format = {
         match formats {
-            None => Format::Rgba8Srgb,
-            Some(options) => options
+            Some(choices) => choices
                 .into_iter()
                 .find(|format| format.base_format().1 == ChannelType::Srgb)
                 .unwrap(),
+            None => Format::Rgba8Srgb,
         }
     };
 
@@ -164,6 +106,18 @@ fn main() {
     };
 
     let pipeline_layout = device.create_pipeline_layout(&[], &[]);
+
+    // We're using new shaders for this tutorial - check out the source in
+    // source_assets/shaders/part02.*
+    let vertex_shader_module = {
+        let spirv = include_bytes!("../../assets/gen/shaders/part02.vert.spv");
+        device.create_shader_module(spirv).unwrap()
+    };
+
+    let fragment_shader_module = {
+        let spirv = include_bytes!("../../assets/gen/shaders/part02.frag.spv");
+        device.create_shader_module(spirv).unwrap()
+    };
 
     let pipeline = {
         let vs_entry = EntryPoint::<backend::Backend> {
@@ -242,10 +196,52 @@ fn main() {
             .unwrap()
     };
 
+    // Now lets create a vertex buffer to upload our mesh data into. We'll need both
+    // the buffer, and the memory it's using so we can destroy and deallocate them at
+    // the end.
+    //
+    // TODO: ???
+    let memory_types = adapter.physical_device.memory_properties().memory_types;
+
+    let (vertex_buffer, vertex_buffer_memory) = {
+        // TODO: Explain all of this pish
+        let item_count = MESH.len();
+        let stride = std::mem::size_of::<Vertex>() as u64;
+        let buffer_len = item_count as u64 * stride;
+        let unbound_buffer = device
+            .create_buffer(buffer_len, buffer::Usage::VERTEX)
+            .unwrap();
+        let req = device.get_buffer_requirements(&unbound_buffer);
+        let upload_type = memory_types
+            .iter()
+            .enumerate()
+            .position(|(id, ty)| {
+                req.type_mask & (1 << id) != 0 && ty.properties.contains(Properties::CPU_VISIBLE)
+            })
+            .unwrap()
+            .into();
+
+        let buffer_memory = device.allocate_memory(upload_type, req.size).unwrap();
+        let buffer = device
+            .bind_buffer_memory(&buffer_memory, 0, unbound_buffer)
+            .unwrap();
+
+        // Fill the buffer with vertex data
+        {
+            let mut dest = device
+                .acquire_mapping_writer::<Vertex>(&buffer_memory, 0..buffer_len)
+                .unwrap();
+            dest.copy_from_slice(MESH);
+            device.release_mapping_writer(dest);
+        }
+
+        (buffer, buffer_memory)
+    };
+
     let frame_semaphore = device.create_semaphore();
     let frame_fence = device.create_fence(false);
 
-    let mut swapchain_stuff: Option<(_, _, _)> = None;
+    let mut swapchain_stuff: Option<(_, _, _, _)> = None;
 
     loop {
         let mut quitting = false;
@@ -272,7 +268,7 @@ fn main() {
         });
 
         if (resizing || quitting) && swapchain_stuff.is_some() {
-            let (swapchain, frame_views, framebuffers) = swapchain_stuff.take().unwrap();
+            let (swapchain, _extent, frame_views, framebuffers) = swapchain_stuff.take().unwrap();
 
             device.wait_idle().unwrap();
             command_pool.reset();
@@ -284,6 +280,7 @@ fn main() {
             for image_view in frame_views {
                 device.destroy_image_view(image_view);
             }
+
             device.destroy_swapchain(swapchain);
         }
 
@@ -291,34 +288,15 @@ fn main() {
             break;
         }
 
-        let window_size: (u32, u32) = window
-            .get_inner_size()
-            .unwrap()
-            .to_physical(window.get_hidpi_factor())
-            .into();
-
         if swapchain_stuff.is_none() {
-            surface = instance.create_surface(&window);
+            let (caps, _, _) = surface.compatibility(physical_device);
 
-            let (width, height) = window_size;
-            let (swapchain, backbuffer) = {
-                let extent = { Extent2D { width, height } };
-
-                let swap_config = SwapchainConfig::new()
-                    .with_color(surface_color_format)
-                    .with_image_usage(image::Usage::COLOR_ATTACHMENT);
-
-                device.create_swapchain(&mut surface, swap_config, None, &extent)
-            };
+            let swap_config = SwapchainConfig::from_caps(&caps, surface_color_format);
+            let extent = swap_config.extent.to_extent();
+            let (swapchain, backbuffer) = device.create_swapchain(&mut surface, swap_config, None);
 
             let (frame_views, framebuffers) = match backbuffer {
                 Backbuffer::Images(images) => {
-                    let extent = Extent {
-                        width,
-                        height,
-                        depth: 1,
-                    };
-
                     let color_range = SubresourceRange {
                         aspects: Aspects::COLOR,
                         levels: 0..1,
@@ -354,10 +332,10 @@ fn main() {
                 Backbuffer::Framebuffer(fbo) => (Vec::new(), vec![fbo]),
             };
 
-            swapchain_stuff = Some((swapchain, frame_views, framebuffers));
+            swapchain_stuff = Some((swapchain, extent, frame_views, framebuffers));
         }
 
-        let (swapchain, _frame_views, framebuffers) = swapchain_stuff.as_mut().unwrap();
+        let (swapchain, extent, _frame_views, framebuffers) = swapchain_stuff.as_mut().unwrap();
 
         device.reset_fence(&frame_fence);
         command_pool.reset();
@@ -369,13 +347,12 @@ fn main() {
         let finished_command_buffer = {
             let mut command_buffer = command_pool.acquire_command_buffer(false);
 
-            let (width, height) = window_size;
             let viewport = Viewport {
                 rect: Rect {
                     x: 0,
                     y: 0,
-                    w: width as i16,
-                    h: height as i16,
+                    w: extent.width as i16,
+                    h: extent.height as i16,
                 },
                 depth: 0.0..1.0,
             };
@@ -384,6 +361,8 @@ fn main() {
             command_buffer.set_scissors(0, &[viewport.rect]);
 
             command_buffer.bind_graphics_pipeline(&pipeline);
+
+            // TODO: explain
             command_buffer.bind_vertex_buffers(0, vec![(&vertex_buffer, 0)]);
 
             {
