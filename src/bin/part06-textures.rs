@@ -315,6 +315,7 @@ fn main() {
     let frame_semaphore = device.create_semaphore();
     let frame_fence = device.create_fence(false);
 
+    // TODO: All new
     let (texture_image, texture_view, texture_sampler, texture_memory) = {
         let image_bytes = include_bytes!("../../assets/texture.png");
         let img = image::load_from_memory(image_bytes.as_ref())
@@ -480,6 +481,10 @@ fn main() {
 
             device.wait_for_fence(&frame_fence, !0);
         }
+
+        // Cleanup staging resources
+        device.destroy_buffer(image_upload_buffer);
+        device.free_memory(image_upload_memory);
 
         (texture, texture_view, texture_sampler, texture_memory)
     };
