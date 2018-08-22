@@ -1,9 +1,12 @@
 pub use gfx_hal::{
     buffer,
-    command::{ClearColor, ClearDepthStencil, ClearValue},
+    command::{BufferImageCopy, ClearColor, ClearDepthStencil, ClearValue},
     format::{Aspects, ChannelType, Format, Swizzle},
-    image::{self, Access, Extent, Layout, SubresourceRange, ViewKind},
-    memory::Properties,
+    image::{
+        self as img, Access, Extent, Filter, Layout, Offset, SubresourceLayers, SubresourceRange,
+        ViewKind, WrapMode,
+    },
+    memory::{Barrier, Dependencies, Properties},
     pass::{
         Attachment, AttachmentLoadOp, AttachmentOps, AttachmentStoreOp, Subpass, SubpassDependency,
         SubpassDesc, SubpassRef,
