@@ -2,6 +2,10 @@ extern crate gfx_hal_tutorials;
 
 extern crate gfx_backend_metal as backend;
 extern crate gfx_hal;
+
+// We're using the image crate to decode our texture from a PNG.
+extern crate image;
+
 extern crate winit;
 
 use gfx_hal_tutorials::prelude::*;
@@ -15,32 +19,39 @@ use winit::{Event, EventsLoop, KeyboardInput, VirtualKeyCode, WindowBuilder, Win
 struct Vertex {
     position: [f32; 3],
     color: [f32; 4],
+    uv: [f32; 2],
 }
 
 const MESH: &[Vertex] = &[
     Vertex {
         position: [0.0, -1.0, 0.0],
         color: [1.0, 0.0, 0.0, 1.0],
+        uv: [1.0, 0.0],
     },
     Vertex {
         position: [-1.0, 0.0, 0.0],
         color: [0.0, 0.0, 1.0, 1.0],
+        uv: [0.0, 0.0],
     },
     Vertex {
         position: [0.0, 1.0, 0.0],
         color: [0.0, 1.0, 0.0, 1.0],
+        uv: [0.0, 1.0],
     },
     Vertex {
         position: [0.0, -1.0, 0.0],
         color: [1.0, 0.0, 0.0, 1.0],
+        uv: [1.0, 0.0],
     },
     Vertex {
         position: [0.0, 1.0, 0.0],
         color: [0.0, 1.0, 0.0, 1.0],
+        uv: [0.0, 1.0],
     },
     Vertex {
         position: [1.0, 0.0, 0.0],
         color: [1.0, 1.0, 0.0, 1.0],
+        uv: [1.0, 1.0],
     },
 ];
 
@@ -58,12 +69,12 @@ struct PushConstants {
 fn main() {
     let mut events_loop = EventsLoop::new();
     let window = WindowBuilder::new()
-        .with_title("Part 05: Depth testing")
+        .with_title("Part 06: Textures")
         .with_dimensions((256, 256).into())
         .build(&events_loop)
         .unwrap();
 
-    let instance = backend::Instance::create("Part 05: Depth testing", 1);
+    let instance = backend::Instance::create("Part 06: Textures", 1);
     let mut surface = instance.create_surface(&window);
     let mut adapter = instance.enumerate_adapters().remove(0);
     let (device, mut queue_group) = adapter
@@ -86,7 +97,6 @@ fn main() {
         }
     };
 
-    // TODO: How do we choose this correctly?
     let depth_format = Format::D32FloatS8Uint;
 
     let render_pass = {
@@ -98,7 +108,6 @@ fn main() {
             layouts: Layout::Undefined..Layout::Present,
         };
 
-        // TODO: Explain
         let depth_attachment = Attachment {
             format: Some(depth_format),
             samples: 1,
@@ -109,7 +118,6 @@ fn main() {
 
         let subpass = SubpassDesc {
             colors: &[(0, Layout::ColorAttachmentOptimal)],
-            // TODO: Explain
             depth_stencil: Some(&(1, Layout::DepthStencilAttachmentOptimal)),
             inputs: &[],
             resolves: &[],
@@ -131,13 +139,30 @@ fn main() {
     };
 
     let set_layout = device.create_descriptor_set_layout(
-        &[DescriptorSetLayoutBinding {
-            binding: 0,
-            ty: DescriptorType::UniformBuffer,
-            count: 1,
-            stage_flags: ShaderStageFlags::VERTEX,
-            immutable_samplers: false,
-        }],
+        &[
+            DescriptorSetLayoutBinding {
+                binding: 0,
+                ty: DescriptorType::UniformBuffer,
+                count: 1,
+                stage_flags: ShaderStageFlags::VERTEX,
+                immutable_samplers: false,
+            },
+            // TODO: new stuff
+            DescriptorSetLayoutBinding {
+                binding: 1,
+                ty: DescriptorType::SampledImage,
+                count: 1,
+                stage_flags: ShaderStageFlags::FRAGMENT,
+                immutable_samplers: false,
+            },
+            DescriptorSetLayoutBinding {
+                binding: 2,
+                ty: DescriptorType::Sampler,
+                count: 1,
+                stage_flags: ShaderStageFlags::FRAGMENT,
+                immutable_samplers: false,
+            },
+        ],
         &[],
     );
 
@@ -148,13 +173,15 @@ fn main() {
         &[(ShaderStageFlags::VERTEX, 0..num_push_constants)],
     );
 
+    // We're using new shaders for this tutorial - check out the source in
+    // source_assets/shaders/part06.*
     let vertex_shader_module = {
-        let spirv = include_bytes!("../../assets/gen/shaders/part04.vert.spv");
+        let spirv = include_bytes!("../../assets/gen/shaders/part06.vert.spv");
         device.create_shader_module(spirv).unwrap()
     };
 
     let fragment_shader_module = {
-        let spirv = include_bytes!("../../assets/gen/shaders/part04.frag.spv");
+        let spirv = include_bytes!("../../assets/gen/shaders/part06.frag.spv");
         device.create_shader_module(spirv).unwrap()
     };
 
@@ -221,7 +248,15 @@ fn main() {
             },
         });
 
-        // TODO: Explain
+        pipeline_desc.attributes.push(AttributeDesc {
+            location: 2,
+            binding: 0,
+            element: Element {
+                format: Format::Rgba32Float,
+                offset: 28,
+            },
+        });
+
         pipeline_desc.depth_stencil = DepthStencilDesc {
             depth: DepthTest::On {
                 fun: Comparison::Less,
@@ -238,10 +273,21 @@ fn main() {
 
     let mut desc_pool = device.create_descriptor_pool(
         1,
-        &[DescriptorRangeDesc {
-            ty: DescriptorType::UniformBuffer,
-            count: 1,
-        }],
+        &[
+            DescriptorRangeDesc {
+                ty: DescriptorType::UniformBuffer,
+                count: 1,
+            },
+            // TODO: new stuff
+            DescriptorRangeDesc {
+                ty: DescriptorType::SampledImage,
+                count: 1,
+            },
+            DescriptorRangeDesc {
+                ty: DescriptorType::Sampler,
+                count: 1,
+            },
+        ],
     );
 
     let desc_set = desc_pool.allocate_set(&set_layout).unwrap();
@@ -266,43 +312,211 @@ fn main() {
         }],
     );
 
-    device.write_descriptor_sets(vec![DescriptorSetWrite {
-        set: &desc_set,
-        binding: 0,
-        array_offset: 0,
-        descriptors: Some(Descriptor::Buffer(&uniform_buffer, None..None)),
-    }]);
-
-    // These shapes are not in order of depth, so without depth testing they
-    // will draw in an irregular order.
-    let diamonds = vec![
-        PushConstants {
-            tint: [0.6, 0.6, 0.6, 1.0],
-            position: [-0.1, 0.0, 0.3],
-        },
-        PushConstants {
-            tint: [0.2, 0.2, 0.2, 1.0],
-            position: [0.3, 0.8, 0.5],
-        },
-        PushConstants {
-            tint: [0.4, 0.4, 0.4, 1.0],
-            position: [0.1, 0.4, 0.4],
-        },
-        PushConstants {
-            tint: [1.0, 1.0, 1.0, 1.0],
-            position: [-0.5, -0.8, 0.1],
-        },
-        PushConstants {
-            tint: [0.8, 0.8, 0.8, 1.0],
-            position: [-0.3, -0.4, 0.2],
-        },
-    ];
-
     let frame_semaphore = device.create_semaphore();
     let frame_fence = device.create_fence(false);
 
-    // We have three more items to keep track of alongside or swapchain, because
-    // they need to be recreated when the window is resized. We'll get to them soon.
+    let (texture_image, texture_view, texture_sampler, texture_memory) = {
+        let image_bytes = include_bytes!("../../assets/texture.png");
+        let img = image::load_from_memory(image_bytes.as_ref())
+            .expect("Failed to load image.")
+            .to_rgba();
+        let (width, height) = img.dimensions();
+        let row_alignment_mask =
+            physical_device.limits().min_buffer_copy_pitch_alignment as u32 - 1;
+        let image_stride = 4usize;
+        let row_pitch = (width * image_stride as u32 + row_alignment_mask) & !row_alignment_mask;
+        let upload_size = (height * row_pitch) as u64;
+
+        let image_buffer_unbound = device
+            .create_buffer(upload_size, buffer::Usage::TRANSFER_SRC)
+            .unwrap();
+
+        let buffer_req = device.get_buffer_requirements(&image_buffer_unbound);
+        let upload_type = memory_types
+            .iter()
+            .enumerate()
+            .position(|(id, mem_type)| {
+                buffer_req.type_mask & (1 << id) != 0
+                    && mem_type.properties.contains(Properties::CPU_VISIBLE)
+            })
+            .unwrap()
+            .into();
+
+        let image_upload_memory = device
+            .allocate_memory(upload_type, buffer_req.size)
+            .unwrap();
+        let image_upload_buffer = device
+            .bind_buffer_memory(&image_upload_memory, 0, image_buffer_unbound)
+            .unwrap();
+
+        {
+            let mut data = device
+                .acquire_mapping_writer::<u8>(&image_upload_memory, 0..buffer_req.size)
+                .unwrap();
+            for y in 0..height as usize {
+                let row = &(*img)[y * (width as usize) * image_stride
+                                      ..(y + 1) * (width as usize) * image_stride];
+                let dest_base = y * row_pitch as usize;
+                data[dest_base..dest_base + row.len()].copy_from_slice(row);
+            }
+            device.release_mapping_writer(data);
+        }
+
+        let kind = img::Kind::D2(width as img::Size, height as img::Size, 1, 1);
+
+        let unbound_image = device
+            .create_image(
+                kind,
+                1,
+                Format::Rgba8Srgb,
+                img::Tiling::Optimal,
+                img::Usage::TRANSFER_DST | img::Usage::SAMPLED,
+                img::StorageFlags::empty(),
+            )
+            .expect("Failed to create unbound texture image");
+
+        let image_req = device.get_image_requirements(&unbound_image);
+
+        let device_type = memory_types
+            .iter()
+            .enumerate()
+            .position(|(id, memory_type)| {
+                image_req.type_mask & (1 << id) != 0
+                    && memory_type.properties.contains(Properties::DEVICE_LOCAL)
+            })
+            .unwrap()
+            .into();
+
+        let texture_memory = device
+            .allocate_memory(device_type, image_req.size)
+            .expect("Failed to allocate texture image");
+
+        let texture = device
+            .bind_image_memory(&texture_memory, 0, unbound_image)
+            .expect("Failed to bind texture image");
+
+        let texture_view = device
+            .create_image_view(
+                &texture,
+                img::ViewKind::D2,
+                Format::Rgba8Srgb,
+                Swizzle::NO,
+                SubresourceRange {
+                    aspects: Aspects::COLOR,
+                    levels: 0..1,
+                    layers: 0..1,
+                },
+            )
+            .expect("Failed to create image view");
+
+        let texture_sampler =
+            device.create_sampler(img::SamplerInfo::new(Filter::Linear, WrapMode::Clamp));
+
+        // Copy staging buffer to texture
+        {
+            let submit = {
+                let mut cmd_buffer = command_pool.acquire_command_buffer(false);
+
+                let image_barrier = Barrier::Image {
+                    states: (Access::empty(), Layout::Undefined)
+                        ..(Access::TRANSFER_WRITE, Layout::TransferDstOptimal),
+                    target: &texture,
+                    range: SubresourceRange {
+                        aspects: Aspects::COLOR,
+                        levels: 0..1,
+                        layers: 0..1,
+                    },
+                };
+
+                cmd_buffer.pipeline_barrier(
+                    PipelineStage::TOP_OF_PIPE..PipelineStage::TRANSFER,
+                    Dependencies::empty(),
+                    &[image_barrier],
+                );
+
+                cmd_buffer.copy_buffer_to_image(
+                    &image_upload_buffer,
+                    &texture,
+                    Layout::TransferDstOptimal,
+                    &[BufferImageCopy {
+                        buffer_offset: 0,
+                        buffer_width: row_pitch / (image_stride as u32),
+                        buffer_height: height as u32,
+                        image_layers: SubresourceLayers {
+                            aspects: Aspects::COLOR,
+                            level: 0,
+                            layers: 0..1,
+                        },
+                        image_offset: Offset { x: 0, y: 0, z: 0 },
+                        image_extent: Extent {
+                            width,
+                            height,
+                            depth: 1,
+                        },
+                    }],
+                );
+
+                let image_barrier = Barrier::Image {
+                    states: (Access::TRANSFER_WRITE, Layout::TransferDstOptimal)
+                        ..(Access::SHADER_READ, Layout::ShaderReadOnlyOptimal),
+                    target: &texture,
+                    range: SubresourceRange {
+                        aspects: Aspects::COLOR,
+                        levels: 0..1,
+                        layers: 0..1,
+                    },
+                };
+                cmd_buffer.pipeline_barrier(
+                    PipelineStage::TRANSFER..PipelineStage::FRAGMENT_SHADER,
+                    Dependencies::empty(),
+                    &[image_barrier],
+                );
+
+                cmd_buffer.finish()
+            };
+
+            let submission = Submission::new().submit(Some(submit));
+            queue_group.queues[0].submit(submission, Some(&frame_fence));
+
+            device.wait_for_fence(&frame_fence, !0);
+        }
+
+        (texture, texture_view, texture_sampler, texture_memory)
+    };
+
+    device.write_descriptor_sets(vec![
+        DescriptorSetWrite {
+            set: &desc_set,
+            binding: 0,
+            array_offset: 0,
+            descriptors: Some(Descriptor::Buffer(&uniform_buffer, None..None)),
+        },
+        // TODO: New stuff
+        DescriptorSetWrite {
+            set: &desc_set,
+            binding: 1,
+            array_offset: 0,
+            descriptors: Some(Descriptor::Image(&texture_view, Layout::Undefined)),
+        },
+        DescriptorSetWrite {
+            set: &desc_set,
+            binding: 2,
+            array_offset: 0,
+            descriptors: Some(Descriptor::Sampler(&texture_sampler)),
+        },
+    ]);
+
+    let diamonds = vec![
+        PushConstants {
+            tint: [1.0, 1.0, 1.0, 1.0],
+            position: [-0.5, 0.0, 0.0],
+        },
+        PushConstants {
+            tint: [0.5, 0.5, 0.5, 1.0],
+            position: [0.5, 0.0, 0.1],
+        },
+    ];
+
     let mut swapchain_stuff: Option<(_, _, _, _, _, _, _)> = None;
 
     loop {
@@ -330,7 +544,6 @@ fn main() {
         });
 
         if (resizing || quitting) && swapchain_stuff.is_some() {
-            // As mentioned, we have three new depth-related things to track.
             let (
                 swapchain,
                 _extent,
@@ -352,7 +565,6 @@ fn main() {
                 device.destroy_image_view(image_view);
             }
 
-            // ... and they have to be cleaned up too.
             device.destroy_image_view(depth_image_view);
             device.destroy_image(depth_image);
             device.free_memory(depth_image_memory);
@@ -371,8 +583,6 @@ fn main() {
             let extent = swap_config.extent.to_extent();
             let (swapchain, backbuffer) = device.create_swapchain(&mut surface, swap_config, None);
 
-            // Here's where we create the new stuff:
-            // TODO: Explain it all
             let (depth_image, depth_image_memory, depth_image_view) = {
                 let kind =
                     img::Kind::D2(extent.width as img::Size, extent.height as img::Size, 1, 1);
@@ -454,7 +664,6 @@ fn main() {
                             device
                                 .create_framebuffer(
                                     &render_pass,
-                                    // TODO: Explain
                                     vec![image_view, &depth_image_view],
                                     extent,
                                 )
@@ -467,8 +676,6 @@ fn main() {
                 Backbuffer::Framebuffer(fbo) => (Vec::new(), vec![fbo]),
             };
 
-            // We have to store the depth stuff so we can clean it up later.
-            // (Which we're actually handling earlier on at the start of the loop.)
             swapchain_stuff = Some((
                 swapchain,
                 extent,
@@ -544,7 +751,6 @@ fn main() {
                     viewport.rect,
                     &[
                         ClearValue::Color(ClearColor::Float([0.0, 0.0, 0.0, 1.0])),
-                        // TODO: Explain
                         ClearValue::DepthStencil(ClearDepthStencil(1.0, 0)),
                     ],
                 );
@@ -587,6 +793,10 @@ fn main() {
     device.destroy_shader_module(fragment_shader_module);
     device.destroy_command_pool(command_pool.into_raw());
     device.destroy_descriptor_pool(desc_pool);
+    device.destroy_image(texture_image);
+    device.destroy_image_view(texture_view);
+    device.destroy_sampler(texture_sampler);
+    device.free_memory(texture_memory);
     device.destroy_descriptor_set_layout(set_layout);
     device.destroy_buffer(uniform_buffer);
     device.free_memory(uniform_memory);
