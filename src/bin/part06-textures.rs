@@ -713,10 +713,13 @@ fn main() {
     device.destroy_shader_module(fragment_shader_module);
     device.destroy_command_pool(command_pool.into_raw());
     device.destroy_descriptor_pool(desc_pool);
+
+    // Remember to tidy up!
     device.destroy_image(texture_image);
     device.destroy_image_view(texture_view);
     device.destroy_sampler(texture_sampler);
     device.free_memory(texture_memory);
+
     device.destroy_descriptor_set_layout(set_layout);
     device.destroy_buffer(uniform_buffer);
     device.free_memory(uniform_memory);
