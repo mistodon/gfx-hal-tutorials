@@ -1,7 +1,8 @@
 use gfx_hal::Backend;
 use prelude::*;
 
-fn empty_buffer<B: Backend, Item>(
+/// Creates an emtpy buffer of a certain type and size.
+pub fn empty_buffer<B: Backend, Item>(
     device: &B::Device,
     memory_types: &[MemoryType],
     properties: Properties,
@@ -34,6 +35,7 @@ fn empty_buffer<B: Backend, Item>(
     (buffer, buffer_memory)
 }
 
+/// Pushes data into a buffer.
 pub fn fill_buffer<B: Backend, Item: Copy>(
     device: &B::Device,
     buffer_memory: &mut B::Memory,
@@ -52,6 +54,7 @@ pub fn fill_buffer<B: Backend, Item: Copy>(
     device.release_mapping_writer(dest);
 }
 
+/// Creates a buffer and immediately fills it.
 pub fn create_buffer<B: Backend, Item: Copy>(
     device: &B::Device,
     memory_types: &[MemoryType],
@@ -87,4 +90,64 @@ pub fn push_constant_size<T>() -> usize {
     assert!(type_size % PUSH_CONSTANT_SIZE == 0);
 
     type_size / PUSH_CONSTANT_SIZE
+}
+
+/// Create an image, image memory, and image view with the given properties.
+pub fn create_image<B: Backend>(
+    device: &B::Device,
+    memory_types: &[MemoryType],
+    width: u32,
+    height: u32,
+    format: Format,
+    usage: img::Usage,
+    aspects: Aspects,
+) -> (B::Image, B::Memory, B::ImageView) {
+    let kind = img::Kind::D2(width, height, 1, 1);
+
+    let unbound_image = device
+        .create_image(
+            kind,
+            1,
+            format,
+            img::Tiling::Optimal,
+            usage,
+            img::StorageFlags::empty(),
+        )
+        .expect("Failed to create unbound image");
+
+    let image_req = device.get_image_requirements(&unbound_image);
+
+    let device_type = memory_types
+        .iter()
+        .enumerate()
+        .position(|(id, memory_type)| {
+            image_req.type_mask & (1 << id) != 0
+                && memory_type.properties.contains(Properties::DEVICE_LOCAL)
+        })
+        .unwrap()
+        .into();
+
+    let image_memory = device
+        .allocate_memory(device_type, image_req.size)
+        .expect("Failed to allocate image");
+
+    let image = device
+        .bind_image_memory(&image_memory, 0, unbound_image)
+        .expect("Failed to bind image");
+
+    let image_view = device
+        .create_image_view(
+            &image,
+            img::ViewKind::D2,
+            format,
+            Swizzle::NO,
+            img::SubresourceRange {
+                aspects,
+                levels: 0..1,
+                layers: 0..1,
+            },
+        )
+        .expect("Failed to create image view");
+
+    (image, image_memory, image_view)
 }

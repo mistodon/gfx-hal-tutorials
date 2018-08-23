@@ -19,6 +19,7 @@ use winit::{Event, EventsLoop, KeyboardInput, VirtualKeyCode, WindowBuilder, Win
 struct Vertex {
     position: [f32; 3],
     color: [f32; 4],
+    // TODO: This is new
     uv: [f32; 2],
 }
 
@@ -248,6 +249,7 @@ fn main() {
             },
         });
 
+        // TODO: We added a new attribute
         pipeline_desc.attributes.push(AttributeDesc {
             location: 2,
             binding: 0,
@@ -316,112 +318,66 @@ fn main() {
     let frame_fence = device.create_fence(false);
 
     // TODO: All new
-    let (texture_image, texture_view, texture_sampler, texture_memory) = {
+    let (texture_image, texture_memory, texture_view, texture_sampler) = {
         let image_bytes = include_bytes!("../../assets/texture.png");
         let img = image::load_from_memory(image_bytes.as_ref())
             .expect("Failed to load image.")
             .to_rgba();
         let (width, height) = img.dimensions();
-        let row_alignment_mask =
-            physical_device.limits().min_buffer_copy_pitch_alignment as u32 - 1;
-        let image_stride = 4usize;
-        let row_pitch = (width * image_stride as u32 + row_alignment_mask) & !row_alignment_mask;
-        let upload_size = (height * row_pitch) as u64;
 
-        let image_buffer_unbound = device
-            .create_buffer(upload_size, buffer::Usage::TRANSFER_SRC)
-            .unwrap();
-
-        let buffer_req = device.get_buffer_requirements(&image_buffer_unbound);
-        let upload_type = memory_types
-            .iter()
-            .enumerate()
-            .position(|(id, mem_type)| {
-                buffer_req.type_mask & (1 << id) != 0
-                    && mem_type.properties.contains(Properties::CPU_VISIBLE)
-            })
-            .unwrap()
-            .into();
-
-        let image_upload_memory = device
-            .allocate_memory(upload_type, buffer_req.size)
-            .unwrap();
-        let image_upload_buffer = device
-            .bind_buffer_memory(&image_upload_memory, 0, image_buffer_unbound)
-            .unwrap();
-
-        {
-            let mut data = device
-                .acquire_mapping_writer::<u8>(&image_upload_memory, 0..buffer_req.size)
-                .unwrap();
-            for y in 0..height as usize {
-                let row = &(*img)[y * (width as usize) * image_stride
-                                      ..(y + 1) * (width as usize) * image_stride];
-                let dest_base = y * row_pitch as usize;
-                data[dest_base..dest_base + row.len()].copy_from_slice(row);
-            }
-            device.release_mapping_writer(data);
-        }
-
-        let kind = img::Kind::D2(width as img::Size, height as img::Size, 1, 1);
-
-        let unbound_image = device
-            .create_image(
-                kind,
-                1,
-                Format::Rgba8Srgb,
-                img::Tiling::Optimal,
-                img::Usage::TRANSFER_DST | img::Usage::SAMPLED,
-                img::StorageFlags::empty(),
-            )
-            .expect("Failed to create unbound texture image");
-
-        let image_req = device.get_image_requirements(&unbound_image);
-
-        let device_type = memory_types
-            .iter()
-            .enumerate()
-            .position(|(id, memory_type)| {
-                image_req.type_mask & (1 << id) != 0
-                    && memory_type.properties.contains(Properties::DEVICE_LOCAL)
-            })
-            .unwrap()
-            .into();
-
-        let texture_memory = device
-            .allocate_memory(device_type, image_req.size)
-            .expect("Failed to allocate texture image");
-
-        let texture = device
-            .bind_image_memory(&texture_memory, 0, unbound_image)
-            .expect("Failed to bind texture image");
-
-        let texture_view = device
-            .create_image_view(
-                &texture,
-                img::ViewKind::D2,
-                Format::Rgba8Srgb,
-                Swizzle::NO,
-                SubresourceRange {
-                    aspects: Aspects::COLOR,
-                    levels: 0..1,
-                    layers: 0..1,
-                },
-            )
-            .expect("Failed to create image view");
+        let (texture_image, texture_memory, texture_view) = utils::create_image::<Backend>(
+            &device,
+            &memory_types,
+            width,
+            height,
+            Format::Rgba8Srgb,
+            img::Usage::TRANSFER_DST | img::Usage::SAMPLED,
+            Aspects::COLOR,
+        );
 
         let texture_sampler =
             device.create_sampler(img::SamplerInfo::new(Filter::Linear, WrapMode::Clamp));
 
-        // Copy staging buffer to texture
+        // TODO: Write data into texture
         {
+            let row_alignment_mask =
+                physical_device.limits().min_buffer_copy_pitch_alignment as u32 - 1;
+            let image_stride = 4usize;
+            let row_pitch =
+                (width * image_stride as u32 + row_alignment_mask) & !row_alignment_mask;
+            let upload_size = (height * row_pitch) as u64;
+
+            let (image_upload_buffer, mut image_upload_memory) = utils::empty_buffer::<Backend, u8>(
+                &device,
+                &memory_types,
+                Properties::CPU_VISIBLE,
+                buffer::Usage::TRANSFER_SRC,
+                upload_size as usize,
+            );
+
+            {
+                let mut data = device
+                    .acquire_mapping_writer::<u8>(&image_upload_memory, 0..upload_size)
+                    .unwrap();
+
+                for y in 0..height as usize {
+                    let row = &(*img)[y * (width as usize) * image_stride
+                                          ..(y + 1) * (width as usize) * image_stride];
+                    let dest_base = y * row_pitch as usize;
+                    data[dest_base..dest_base + row.len()].copy_from_slice(row);
+                }
+
+                device.release_mapping_writer(data);
+            }
+
+            // TODO: Commands to transfer data
             let submit = {
                 let mut cmd_buffer = command_pool.acquire_command_buffer(false);
 
                 let image_barrier = Barrier::Image {
                     states: (Access::empty(), Layout::Undefined)
                         ..(Access::TRANSFER_WRITE, Layout::TransferDstOptimal),
-                    target: &texture,
+                    target: &texture_image,
                     range: SubresourceRange {
                         aspects: Aspects::COLOR,
                         levels: 0..1,
@@ -437,7 +393,7 @@ fn main() {
 
                 cmd_buffer.copy_buffer_to_image(
                     &image_upload_buffer,
-                    &texture,
+                    &texture_image,
                     Layout::TransferDstOptimal,
                     &[BufferImageCopy {
                         buffer_offset: 0,
@@ -460,13 +416,14 @@ fn main() {
                 let image_barrier = Barrier::Image {
                     states: (Access::TRANSFER_WRITE, Layout::TransferDstOptimal)
                         ..(Access::SHADER_READ, Layout::ShaderReadOnlyOptimal),
-                    target: &texture,
+                    target: &texture_image,
                     range: SubresourceRange {
                         aspects: Aspects::COLOR,
                         levels: 0..1,
                         layers: 0..1,
                     },
                 };
+
                 cmd_buffer.pipeline_barrier(
                     PipelineStage::TRANSFER..PipelineStage::FRAGMENT_SHADER,
                     Dependencies::empty(),
@@ -480,13 +437,13 @@ fn main() {
             queue_group.queues[0].submit(submission, Some(&frame_fence));
 
             device.wait_for_fence(&frame_fence, !0);
+
+            // Cleanup staging resources
+            device.destroy_buffer(image_upload_buffer);
+            device.free_memory(image_upload_memory);
         }
 
-        // Cleanup staging resources
-        device.destroy_buffer(image_upload_buffer);
-        device.free_memory(image_upload_memory);
-
-        (texture, texture_view, texture_sampler, texture_memory)
+        (texture_image, texture_memory, texture_view, texture_sampler)
     };
 
     device.write_descriptor_sets(vec![
@@ -588,57 +545,15 @@ fn main() {
             let extent = swap_config.extent.to_extent();
             let (swapchain, backbuffer) = device.create_swapchain(&mut surface, swap_config, None);
 
-            let (depth_image, depth_image_memory, depth_image_view) = {
-                let kind =
-                    img::Kind::D2(extent.width as img::Size, extent.height as img::Size, 1, 1);
-
-                let unbound_depth_image = device
-                    .create_image(
-                        kind,
-                        1,
-                        depth_format,
-                        img::Tiling::Optimal,
-                        img::Usage::DEPTH_STENCIL_ATTACHMENT,
-                        img::StorageFlags::empty(),
-                    )
-                    .expect("Failed to create unbound depth image");
-
-                let image_req = device.get_image_requirements(&unbound_depth_image);
-
-                let device_type = memory_types
-                    .iter()
-                    .enumerate()
-                    .position(|(id, memory_type)| {
-                        image_req.type_mask & (1 << id) != 0
-                            && memory_type.properties.contains(Properties::DEVICE_LOCAL)
-                    })
-                    .unwrap()
-                    .into();
-
-                let depth_image_memory = device
-                    .allocate_memory(device_type, image_req.size)
-                    .expect("Failed to allocate depth image");
-
-                let depth_image = device
-                    .bind_image_memory(&depth_image_memory, 0, unbound_depth_image)
-                    .expect("Failed to bind depth image");
-
-                let depth_image_view = device
-                    .create_image_view(
-                        &depth_image,
-                        img::ViewKind::D2,
-                        depth_format,
-                        Swizzle::NO,
-                        img::SubresourceRange {
-                            aspects: Aspects::DEPTH | Aspects::STENCIL,
-                            levels: 0..1,
-                            layers: 0..1,
-                        },
-                    )
-                    .expect("Failed to create image view");
-
-                (depth_image, depth_image_memory, depth_image_view)
-            };
+            let (depth_image, depth_image_memory, depth_image_view) = utils::create_image::<Backend>(
+                &device,
+                &memory_types,
+                extent.width as u32,
+                extent.height as u32,
+                depth_format,
+                img::Usage::DEPTH_STENCIL_ATTACHMENT,
+                Aspects::DEPTH | Aspects::STENCIL,
+            );
 
             let (frame_views, framebuffers) = match backbuffer {
                 Backbuffer::Images(images) => {
