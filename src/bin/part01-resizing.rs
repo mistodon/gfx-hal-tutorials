@@ -30,7 +30,7 @@ fn main() {
     let physical_device = &adapter.physical_device;
 
     // We don't need the capabilities just yet, since we use that for the swapchain.
-    let (_, formats, _) = surface.compatibility(physical_device);
+    let (_caps, formats, _) = surface.compatibility(physical_device);
 
     // This could theoretically change between swapchain creations, but we're going
     // to ignore that for now so that we only have to build our render pass and
