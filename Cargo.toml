@@ -11,9 +11,19 @@ winit = "=0.17.2"
 git = "https://github.com/gfx-rs/gfx"
 rev = "16feb392"
 
-[dependencies.gfx-backend-metal]
+
+[target.'cfg(target_os = "macos")'.dependencies.gfx-backend-metal]
 git = "https://github.com/gfx-rs/gfx"
 rev = "16feb392"
+
+[target.'cfg(windows)'.dependencies.gfx-backend-dx12]
+git = "https://github.com/gfx-rs/gfx"
+rev = "16feb392"
+
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies.gfx-backend-vulkan]
+git = "https://github.com/gfx-rs/gfx"
+rev = "16feb392"
+
 
 [build-dependencies]
 glsl-to-spirv = "=0.1.6"
