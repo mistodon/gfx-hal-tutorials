@@ -1,6 +1,9 @@
-// You should be able to use a different backend crate on different platforms.
-// As soon as I can test it, I'll update this repo to switch automatically.
+#[cfg(target_os = "macos")]
 extern crate gfx_backend_metal as backend;
+#[cfg(windows)]
+extern crate gfx_backend_dx12 as backend;
+#[cfg(all(unix, not(target_os = "macos")))]
+extern crate gfx_backend_vulkan as backend;
 
 extern crate gfx_hal;
 extern crate winit;
