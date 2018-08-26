@@ -1,9 +1,9 @@
 extern crate gfx_hal_tutorials;
 
-#[cfg(target_os = "macos")]
-extern crate gfx_backend_metal as backend;
 #[cfg(windows)]
 extern crate gfx_backend_dx12 as backend;
+#[cfg(target_os = "macos")]
+extern crate gfx_backend_metal as backend;
 #[cfg(all(unix, not(target_os = "macos")))]
 extern crate gfx_backend_vulkan as backend;
 
@@ -351,7 +351,7 @@ fn main() {
             let image_stride = 4usize;
             let row_pitch =
                 (width * image_stride as u32 + row_alignment_mask) & !row_alignment_mask;
-            let upload_size = (height * row_pitch) as u64;
+            let upload_size = u64::from(height * row_pitch);
 
             let (image_upload_buffer, mut image_upload_memory) = utils::empty_buffer::<Backend, u8>(
                 &device,

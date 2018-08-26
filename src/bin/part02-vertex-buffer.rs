@@ -1,9 +1,9 @@
 extern crate gfx_hal_tutorials;
 
-#[cfg(target_os = "macos")]
-extern crate gfx_backend_metal as backend;
 #[cfg(windows)]
 extern crate gfx_backend_dx12 as backend;
+#[cfg(target_os = "macos")]
+extern crate gfx_backend_metal as backend;
 #[cfg(all(unix, not(target_os = "macos")))]
 extern crate gfx_backend_vulkan as backend;
 
@@ -11,6 +11,7 @@ extern crate gfx_hal;
 extern crate winit;
 
 use gfx_hal_tutorials::prelude::*;
+use gfx_hal_tutorials::teapot;
 use winit::{Event, EventsLoop, KeyboardInput, VirtualKeyCode, WindowBuilder, WindowEvent};
 
 // To store a mesh in a vertex buffer, we first need a vertex format.
@@ -207,9 +208,18 @@ fn main() {
     // TODO: ???
     let memory_types = physical_device.memory_properties().memory_types;
 
+    // Here we're going to optionally load the teapot mesh, if a command line arg
+    // is passed in.
+    let teapot = load_teapot_mesh();
+    let mesh = if std::env::args().nth(1) == Some("teapot".into()) {
+        MESH
+    } else {
+        &teapot
+    };
+
     let (vertex_buffer, vertex_buffer_memory) = {
         // TODO: Explain all of this pish
-        let item_count = MESH.len();
+        let item_count = mesh.len();
         let stride = std::mem::size_of::<Vertex>() as u64;
         let buffer_len = item_count as u64 * stride;
         let unbound_buffer = device
@@ -235,7 +245,7 @@ fn main() {
             let mut dest = device
                 .acquire_mapping_writer::<Vertex>(&buffer_memory, 0..buffer_len)
                 .unwrap();
-            dest.copy_from_slice(MESH);
+            dest.copy_from_slice(mesh);
             device.release_mapping_writer(dest);
         }
 
@@ -379,7 +389,7 @@ fn main() {
 
                 // Instead of drawing the vertex range 0..3, we now want to draw
                 // however many vertices our mesh has.
-                let num_vertices = MESH.len() as u32;
+                let num_vertices = mesh.len() as u32;
                 encoder.draw(0..num_vertices, 0..1);
             }
 
@@ -413,4 +423,21 @@ fn main() {
 
     device.destroy_fence(frame_fence);
     device.destroy_semaphore(frame_semaphore);
+}
+
+fn load_teapot_mesh() -> Vec<Vertex> {
+    let scale = 0.29;
+    teapot::TEAPOT_VERTICES
+        .iter()
+        .map(|position| {
+            let [mut x, mut y, mut z] = *position;
+            x *= scale;
+            y *= scale;
+            z *= scale;
+            Vertex {
+                position: [x, y, z],
+                color: [z, z, 0.5, 1.0],
+            }
+        })
+        .collect()
 }
