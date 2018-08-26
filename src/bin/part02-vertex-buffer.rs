@@ -212,9 +212,9 @@ fn main() {
     // is passed in.
     let teapot = load_teapot_mesh();
     let mesh = if std::env::args().nth(1) == Some("teapot".into()) {
-        MESH
-    } else {
         &teapot
+    } else {
+        MESH
     };
 
     let (vertex_buffer, vertex_buffer_memory) = {
