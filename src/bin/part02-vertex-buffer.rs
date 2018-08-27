@@ -427,13 +427,11 @@ fn main() {
 
 fn load_teapot_mesh() -> Vec<Vertex> {
     let scale = 0.27;
-    teapot::TEAPOT_VERTICES
-        .iter()
+    teapot::TEAPOT_VERTICES.chunks(3)
         .map(|position| {
-            let [mut x, mut y, mut z] = *position;
-            x *= scale;
-            y *= scale;
-            z *= scale;
+            let x = position[0] * scale;
+            let y = position[1] * scale;
+            let z = position[2] * scale;
             Vertex {
                 position: [x, y, z],
                 color: [x.abs(), y.abs(), z.abs(), 1.0],
