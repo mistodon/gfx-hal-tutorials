@@ -426,7 +426,7 @@ fn main() {
 }
 
 fn load_teapot_mesh() -> Vec<Vertex> {
-    let scale = 0.29;
+    let scale = 0.27;
     teapot::TEAPOT_VERTICES
         .iter()
         .map(|position| {
@@ -436,7 +436,7 @@ fn load_teapot_mesh() -> Vec<Vertex> {
             z *= scale;
             Vertex {
                 position: [x, y, z],
-                color: [z, z, 0.5, 1.0],
+                color: [x.abs(), y.abs(), z.abs(), 1.0],
             }
         })
         .collect()
