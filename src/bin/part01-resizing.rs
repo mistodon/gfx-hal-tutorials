@@ -146,9 +146,10 @@ fn main() {
     // so we don't have to know the specific type names just yet.
     let mut swapchain_stuff: Option<(_, _, _, _)> = None;
 
+    let mut resizing = false;
+
     loop {
         let mut quitting = false;
-        let mut resizing = false;
 
         events_loop.poll_events(|event| {
             if let Event::WindowEvent { event, .. } = event {
@@ -266,9 +267,15 @@ fn main() {
         device.reset_fence(&frame_fence);
         command_pool.reset();
 
-        let frame_index: SwapImageIndex = swapchain
-            .acquire_image(FrameSync::Semaphore(&frame_semaphore))
-            .expect("Failed to acquire frame");
+        let frame_index: SwapImageIndex = {
+            match swapchain.acquire_image(FrameSync::Semaphore(&frame_semaphore)) {
+                Ok(i) => i,
+                Err(_) => {
+                    resizing = true;
+                    continue;
+                }
+            }
+        };
 
         let finished_command_buffer = {
             let mut command_buffer = command_pool.acquire_command_buffer(false);
