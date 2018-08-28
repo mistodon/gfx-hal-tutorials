@@ -146,7 +146,7 @@ fn main() {
     // so we don't have to know the specific type names just yet.
     let mut swapchain_stuff: Option<(_, _, _, _)> = None;
 
-    let mut resizing = false;
+    let mut rebuild_swapchain = false;
 
     loop {
         let mut quitting = false;
@@ -167,7 +167,7 @@ fn main() {
                     // We need to recreate our swapchain if we resize, so we'll set
                     // a flag when that happens.
                     WindowEvent::Resized(_) => {
-                        resizing = true;
+                        rebuild_swapchain = true;
                     }
 
                     _ => {}
@@ -177,7 +177,7 @@ fn main() {
 
         // We need to destroy things if we're resizing because we'll recreate them.
         // We also need to destroy them if we're quitting, so we can clean them up.
-        if (resizing || quitting) && swapchain_stuff.is_some() {
+        if (rebuild_swapchain || quitting) && swapchain_stuff.is_some() {
             // Take ownership over the old stuff so we can destroy it.
             // The value of swapchain_stuff is now `None`.
             let (swapchain, _extent, frame_views, framebuffers) = swapchain_stuff.take().unwrap();
@@ -208,6 +208,7 @@ fn main() {
         // If we don't have a swapchain here, we destroyed it and we need to
         // recreate it.
         if swapchain_stuff.is_none() {
+            rebuild_swapchain = false;
             let (caps, _, _) = surface.compatibility(physical_device);
 
             // Here we just create the swapchain, image views, and framebuffers
@@ -271,7 +272,7 @@ fn main() {
             match swapchain.acquire_image(FrameSync::Semaphore(&frame_semaphore)) {
                 Ok(i) => i,
                 Err(_) => {
-                    resizing = true;
+                    rebuild_swapchain = true;
                     continue;
                 }
             }
@@ -317,8 +318,10 @@ fn main() {
 
         device.wait_for_fence(&frame_fence, !0);
 
-        if let Err(_) = swapchain.present(&mut queue_group.queues[0], frame_index, &[]) {
-            resizing = true;
+        let result = swapchain.present(&mut queue_group.queues[0], frame_index, &[]);
+
+        if result.is_err() {
+            rebuild_swapchain = true;
         }
     }
 

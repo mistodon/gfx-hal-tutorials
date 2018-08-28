@@ -1,4 +1,6 @@
-#[cfg_attr(rustfmt, rustfmt_skip)]
+#![cfg_attr(rustfmt, rustfmt_skip)]
+#![allow(unknown_lints)]
+#![allow(clippy)]
 pub const TEAPOT_VERTICES: &[f32] = &[
 1.5,-0.15,0.0,
 1.481,-0.15,-0.246,
