@@ -317,9 +317,10 @@ fn main() {
 
         device.wait_for_fence(&frame_fence, !0);
 
-        swapchain
-            .present(&mut queue_group.queues[0], frame_index, &[])
-            .expect("Present failed");
+        match swapchain.present(&mut queue_group.queues[0], frame_index, &[]) {
+            Ok(_) => (),
+            Err(_) => continue,
+        }
     }
 
     // Cleanup
