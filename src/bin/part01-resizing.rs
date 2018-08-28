@@ -317,9 +317,8 @@ fn main() {
 
         device.wait_for_fence(&frame_fence, !0);
 
-        match swapchain.present(&mut queue_group.queues[0], frame_index, &[]) {
-            Ok(_) => (),
-            Err(_) => continue,
+        if let Err(_) = swapchain.present(&mut queue_group.queues[0], frame_index, &[]) {
+            resizing = true;
         }
     }
 
