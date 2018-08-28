@@ -1,0 +1,6 @@
+#!/bin/bash
+
+cp Cargo.toml Cargo.toml.bk
+cp ci/Cargo.gfx-master.toml Cargo.toml
+cargo build
+mv Cargo.toml.bk Cargo.toml
