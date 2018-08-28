@@ -1,21 +1,24 @@
 # gfx-hal tutorials
 
-This repo will contain a series of self-contained gfx-hal tutorials, hopefully to make it easier to grok how each feature of the API works individually. I'm still learning myself, so they won't be perfect, but hopefully they'll be useful to somebody.
+[![Build Status](https://travis-ci.org/Mistodon/gfx-hal-tutorials.svg?branch=master)](https://travis-ci.org/Mistodon/gfx-hal-tutorials)
 
-These tutorials all currently use the Metal backend, and so will only run on macOS devices. However, you should be able to quite easily swap out the backend on other platforms. In future, I'll make some modifications to allow them to be cross-platform.
+This repo will contain a series of self-contained gfx-hal tutorials, hopefully to make it easier to grok how each feature of the API works individually. I'm still learning myself, so they won't be perfect, but hopefully they'll be useful to somebody.
 
 ## Running tutorials
 
 The following parts are finished:
 
 - `cargo run --bin part00-triangle`
+- `cargo run --bin part01-resizing`
 
 The following parts should be considered WIP and are likely to change:
 
-- `cargo run --bin part01-resizing`
 - `cargo run --bin part02-vertex-buffer`
 - `cargo run --bin part03-uniforms`
 - `cargo run --bin part04-push-constants`
+- `cargo run --bin part05-depth`
+    - `cargo run --bin part05-no-depth`
+- `cargo run --bin part06-textures`
 
 ## Shaders
 
