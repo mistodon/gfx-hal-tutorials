@@ -15,7 +15,10 @@ matrix:
         - rustup component add clippy-preview
       script:
         - cargo +nightly clippy -- -D clippy
-  allow_failures:
+
     - rust: stable
+      env: GFX_MASTER=true
       script:
         - ./ci/build-gfx-master
+  allow_failures:
+    - env: GFX_MASTER=true
