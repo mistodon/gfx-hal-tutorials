@@ -427,7 +427,8 @@ fn main() {
 
 fn load_teapot_mesh() -> Vec<Vertex> {
     let scale = 0.27;
-    teapot::TEAPOT_VERTICES.chunks(3)
+    teapot::TEAPOT_VERTICES
+        .chunks(3)
         .map(|position| {
             let x = position[0] * scale;
             let y = position[1] * scale;
