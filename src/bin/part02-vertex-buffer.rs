@@ -16,7 +16,12 @@ use winit::{Event, EventsLoop, KeyboardInput, VirtualKeyCode, WindowBuilder, Win
 
 // To store a mesh in a vertex buffer, we first need a vertex format.
 // We're going to include a 3D vertex position, and a per-vertex color attribute.
-// TODO: Add big warning about layout
+//
+// One thing to note is that the Rust compiler reserves the right to lay out your
+// structs any way it likes in memory. This is bad for us, since we need to tell
+// our pipeline the layout of our vertices. By adding #[repr(C)] we can guarantee
+// that they'll be laid out the same way as they would in C, making it at least
+// deterministic.
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 struct Vertex {
@@ -164,7 +169,10 @@ fn main() {
             .targets
             .push(ColorBlendDesc(ColorMask::ALL, BlendState::ALPHA));
 
-        // TODO: I guess this needs a tiny bit of explanation.
+        // We need to let our pipeline know about all the different formats of
+        // vertex buffer we're going to use. The `binding` number is an ID for
+        // this entry. The `stride` how the size of one element (vertex) in bytes.
+        // The `rate` is used for instanced rendering, so we'll ignore it for now.
         pipeline_desc.vertex_buffers.push(VertexBufferDesc {
             binding: 0,
             stride: std::mem::size_of::<Vertex>() as u32,
@@ -173,12 +181,14 @@ fn main() {
 
         // We have to declare our two vertex attributes: position and color.
         // Note that their locations have to match the locations in the shader, and
-        // their format has to be appropriate for the data type in the shader.
-        // vec3 = Rgb32Float
-        // vec4 = Rgba32Float
+        // their format has to be appropriate for the data type in the shader:
+        //
+        // vec3 = Rgb32Float (three 32-bit floats)
+        // vec4 = Rgba32Float (four 32-bit floats)
         //
         // Additionally, the second attribute must have an offset of 12 bytes in the
-        // vertex, because this is the size of the first field.
+        // vertex, because this is the size of the first field. The `binding`
+        // parameter refers back to the ID we gave in VertexBufferDesc.
         pipeline_desc.attributes.push(AttributeDesc {
             location: 0,
             binding: 0,
@@ -205,12 +215,19 @@ fn main() {
     // Now lets create a vertex buffer to upload our mesh data into. We'll need both
     // the buffer, and the memory it's using so we can destroy and deallocate them at
     // the end.
+
+    // Your graphics card provides different types of memory, with some being more
+    // efficient for certain tasks. For example, CPU_VISIBLE memory will allow you
+    // to write to it directly but be slow to use for rendering, while DEVICE_LOCAL
+    // memory is fast for rendering, but you'll require a staging buffer to copy data
+    // into it.
     //
-    // TODO: ???
+    // We get a list of the available memory types here so we can choose one later.
     let memory_types = physical_device.memory_properties().memory_types;
 
     // Here we're going to optionally load the teapot mesh, if a command line arg
-    // is passed in.
+    // is passed in. You can ignore this and just use MESH if you want, but teapots
+    // are traditional after all.
     let teapot = load_teapot_mesh();
     let mesh = if std::env::args().nth(1) == Some("teapot".into()) {
         &teapot
@@ -218,30 +235,63 @@ fn main() {
         MESH
     };
 
+    // Here's where we create the buffer itself, and the memory to hold it. There's
+    // a lot in here, and in future parts we'll extract it to a utility function.
     let (vertex_buffer, vertex_buffer_memory) = {
-        // TODO: Explain all of this pish
+
+        // First we create an unbound buffer (e.g, a buffer not currently bound to
+        // any memory). We need to work out the size of it in bytes, and declare
+        // that we want to use it for vertex data.
         let item_count = mesh.len();
         let stride = std::mem::size_of::<Vertex>() as u64;
         let buffer_len = item_count as u64 * stride;
         let unbound_buffer = device
             .create_buffer(buffer_len, buffer::Usage::VERTEX)
             .unwrap();
+
+        // Next, we need the graphics card to tell us what the memory requirements
+        // for this buffer are. This includes the size, alignment, and available
+        // memory types. We know how big our data is, but we have to store it in
+        // a valid way for the device.
         let req = device.get_buffer_requirements(&unbound_buffer);
+
+        // This complicated looking statement filters through memory types to pick
+        // one that's appropriate. We call enumerate to give us the ID (the index)
+        // of each type, which might look something like this:
+        //
+        // id   ty
+        // ==   ==
+        // 0    DEVICE_LOCAL
+        // 1    COHERENT | CPU_VISIBLE
+        // 2    DEVICE_LOCAL | CPU_VISIBLE
+        // 3    DEVICE_LOCAL | CPU_VISIBLE | CPU_CACHED
+        //
+        // We then want to find the first type that is supported by out memory
+        // requirements (e.g, `id` is in the `type_mask` bitfield), and also has
+        // the CPU_VISIBLE property (so we can copy vertex data directly into it.)
         let upload_type = memory_types
             .iter()
             .enumerate()
-            .position(|(id, ty)| {
-                req.type_mask & (1 << id) != 0 && ty.properties.contains(Properties::CPU_VISIBLE)
+            .find(|(id, ty)| {
+                let type_supported = req.type_mask & (1_u64 << id) != 0;
+                type_supported && ty.properties.contains(Properties::CPU_VISIBLE)
             })
-            .unwrap()
-            .into();
+            .map(|(id, _ty)| MemoryTypeId(id))
+            .expect("Could not find approprate vertex buffer memory type.");
 
+        // Now that we know the type and size of memory we need, we can allocate it
+        // and bind out buffer to it. The `0` there is an offset, which you could
+        // use to bind multiple buffers to the same block of memory.
         let buffer_memory = device.allocate_memory(upload_type, req.size).unwrap();
         let buffer = device
             .bind_buffer_memory(&buffer_memory, 0, unbound_buffer)
             .unwrap();
 
-        // Fill the buffer with vertex data
+        // Finally, we can copy our vertex data into the buffer. To do this we get
+        // a writer corresponding to the range of memory we want to write to. This
+        // writer essentially memory maps the data and acts as a slice that we can
+        // write into. Once we do that, we unmap the memory, and our buffer should
+        // now be full.
         {
             let mut dest = device
                 .acquire_mapping_writer::<Vertex>(&buffer_memory, 0..buffer_len)
@@ -385,7 +435,12 @@ fn main() {
 
             command_buffer.bind_graphics_pipeline(&pipeline);
 
-            // TODO: explain
+            // This is where we tell our pipeline to use a specific vertex buffer.
+            // The first argument again referse to the vertex buffer `binding` as
+            // defined above. Next is a vec of buffers to bind. Each is a pair of
+            // (buffer, offset) where offset is relative to that `binding` number
+            // again. Basically, we only have one vertex buffer, and one type of
+            // vertex buffer, so you can ignore the numbers completely for now.
             command_buffer.bind_vertex_buffers(0, vec![(&vertex_buffer, 0)]);
 
             {
@@ -446,7 +501,7 @@ fn load_teapot_mesh() -> Vec<Vertex> {
             let y = position[1] * scale;
             let z = position[2] * scale;
             Vertex {
-                position: [x, y, z],
+                position: [x, y + 0.4, z],
                 color: [x.abs(), y.abs(), z.abs(), 1.0],
             }
         })
