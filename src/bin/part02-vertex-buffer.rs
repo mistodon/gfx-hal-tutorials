@@ -18,6 +18,7 @@ use winit::{Event, EventsLoop, KeyboardInput, VirtualKeyCode, WindowBuilder, Win
 // We're going to include a 3D vertex position, and a per-vertex color attribute.
 // TODO: Add big warning about layout
 #[derive(Debug, Clone, Copy)]
+#[repr(C)]
 struct Vertex {
     position: [f32; 3],
     color: [f32; 4],
@@ -257,9 +258,10 @@ fn main() {
 
     let mut swapchain_stuff: Option<(_, _, _, _)> = None;
 
+    let mut rebuild_swapchain = false;
+
     loop {
         let mut quitting = false;
-        let mut resizing = false;
 
         events_loop.poll_events(|event| {
             if let Event::WindowEvent { event, .. } = event {
@@ -274,14 +276,14 @@ fn main() {
                         ..
                     } => quitting = true,
                     WindowEvent::Resized(_) => {
-                        resizing = true;
+                        rebuild_swapchain = true;
                     }
                     _ => {}
                 }
             }
         });
 
-        if (resizing || quitting) && swapchain_stuff.is_some() {
+        if (rebuild_swapchain || quitting) && swapchain_stuff.is_some() {
             let (swapchain, _extent, frame_views, framebuffers) = swapchain_stuff.take().unwrap();
 
             device.wait_idle().unwrap();
@@ -303,6 +305,7 @@ fn main() {
         }
 
         if swapchain_stuff.is_none() {
+            rebuild_swapchain = false;
             let (caps, _, _) = surface.compatibility(physical_device);
 
             let swap_config = SwapchainConfig::from_caps(&caps, surface_color_format);
@@ -354,9 +357,15 @@ fn main() {
         device.reset_fence(&frame_fence);
         command_pool.reset();
 
-        let frame_index: SwapImageIndex = swapchain
-            .acquire_image(FrameSync::Semaphore(&frame_semaphore))
-            .expect("Failed to acquire frame");
+        let frame_index: SwapImageIndex = {
+            match swapchain.acquire_image(FrameSync::Semaphore(&frame_semaphore)) {
+                Ok(i) => i,
+                Err(_) => {
+                    rebuild_swapchain = true;
+                    continue;
+                }
+            }
+        };
 
         let finished_command_buffer = {
             let mut command_buffer = command_pool.acquire_command_buffer(false);
@@ -404,9 +413,11 @@ fn main() {
 
         device.wait_for_fence(&frame_fence, !0);
 
-        swapchain
-            .present(&mut queue_group.queues[0], frame_index, &[])
-            .expect("Present failed");
+        let result = swapchain.present(&mut queue_group.queues[0], frame_index, &[]);
+
+        if result.is_err() {
+            rebuild_swapchain = true;
+        }
     }
 
     // Cleanup
@@ -425,6 +436,7 @@ fn main() {
     device.destroy_semaphore(frame_semaphore);
 }
 
+// You can probably ignore this, but it's always nice to have a teapot mesh.
 fn load_teapot_mesh() -> Vec<Vertex> {
     let scale = 0.27;
     teapot::TEAPOT_VERTICES
