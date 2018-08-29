@@ -238,7 +238,6 @@ fn main() {
     // Here's where we create the buffer itself, and the memory to hold it. There's
     // a lot in here, and in future parts we'll extract it to a utility function.
     let (vertex_buffer, vertex_buffer_memory) = {
-
         // First we create an unbound buffer (e.g, a buffer not currently bound to
         // any memory). We need to work out the size of it in bytes, and declare
         // that we want to use it for vertex data.
