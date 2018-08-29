@@ -311,7 +311,7 @@ fn main() {
         // returns the index of the image we'll use. The image may not be ready for
         // rendering yet, but will signal frame_semaphore when it is.
         let frame_index: SwapImageIndex = swapchain
-            .acquire_image(FrameSync::Semaphore(&frame_semaphore))
+            .acquire_image(0, FrameSync::Semaphore(&frame_semaphore))
             .expect("Failed to acquire frame");
 
         // We have to build a command buffer before we send it off to draw.
