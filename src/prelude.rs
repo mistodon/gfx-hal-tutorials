@@ -1,6 +1,6 @@
 pub use gfx_hal::{
-    buffer,
     adapter::MemoryTypeId,
+    buffer,
     command::{BufferImageCopy, ClearColor, ClearDepthStencil, ClearValue},
     format::{Aspects, ChannelType, Format, Swizzle},
     image::{
