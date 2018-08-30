@@ -269,7 +269,7 @@ fn main() {
         command_pool.reset();
 
         let frame_index: SwapImageIndex = {
-            match swapchain.acquire_image(0, FrameSync::Semaphore(&frame_semaphore)) {
+            match swapchain.acquire_image(!0, FrameSync::Semaphore(&frame_semaphore)) {
                 Ok(i) => i,
                 Err(_) => {
                     rebuild_swapchain = true;
