@@ -111,7 +111,7 @@ pub fn create_image<B: Backend>(
             format,
             img::Tiling::Optimal,
             usage,
-            img::StorageFlags::empty(),
+            ViewCapabilities::empty(),
         )
         .expect("Failed to create unbound image");
 

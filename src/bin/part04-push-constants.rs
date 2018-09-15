@@ -162,13 +162,13 @@ fn main() {
         let vs_entry = EntryPoint::<backend::Backend> {
             entry: "main",
             module: &vertex_shader_module,
-            specialization: &[],
+            specialization: Default::default(),
         };
 
         let fs_entry = EntryPoint::<backend::Backend> {
             entry: "main",
             module: &fragment_shader_module,
-            specialization: &[],
+            specialization: Default::default(),
         };
 
         let shader_entries = GraphicsShaderSet {

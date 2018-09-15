@@ -168,13 +168,13 @@ fn main() {
         let vs_entry = EntryPoint::<backend::Backend> {
             entry: "main",
             module: &vertex_shader_module,
-            specialization: &[],
+            specialization: Default::default(),
         };
 
         let fs_entry = EntryPoint::<backend::Backend> {
             entry: "main",
             module: &fragment_shader_module,
-            specialization: &[],
+            specialization: Default::default(),
         };
 
         let shader_entries = GraphicsShaderSet {
@@ -392,7 +392,7 @@ fn main() {
                         depth_format,
                         img::Tiling::Optimal,
                         img::Usage::DEPTH_STENCIL_ATTACHMENT,
-                        img::StorageFlags::empty(),
+                        ViewCapabilities::empty(),
                     )
                     .expect("Failed to create unbound depth image");
 
