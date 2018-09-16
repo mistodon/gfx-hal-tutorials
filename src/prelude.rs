@@ -5,7 +5,7 @@ pub use gfx_hal::{
     format::{Aspects, ChannelType, Format, Swizzle},
     image::{
         self as img, Access, Extent, Filter, Layout, Offset, SubresourceLayers, SubresourceRange,
-        ViewKind, WrapMode, ViewCapabilities
+        ViewCapabilities, ViewKind, WrapMode,
     },
     memory::{Barrier, Dependencies, Properties},
     pass::{

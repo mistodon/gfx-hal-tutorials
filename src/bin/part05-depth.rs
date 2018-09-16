@@ -393,8 +393,7 @@ fn main() {
                         img::Tiling::Optimal,
                         img::Usage::DEPTH_STENCIL_ATTACHMENT,
                         ViewCapabilities::empty(),
-                    )
-                    .expect("Failed to create unbound depth image");
+                    ).expect("Failed to create unbound depth image");
 
                 let image_req = device.get_image_requirements(&unbound_depth_image);
 
@@ -404,8 +403,7 @@ fn main() {
                     .position(|(id, memory_type)| {
                         image_req.type_mask & (1 << id) != 0
                             && memory_type.properties.contains(Properties::DEVICE_LOCAL)
-                    })
-                    .unwrap()
+                    }).unwrap()
                     .into();
 
                 let depth_image_memory = device
@@ -427,8 +425,7 @@ fn main() {
                             levels: 0..1,
                             layers: 0..1,
                         },
-                    )
-                    .expect("Failed to create image view");
+                    ).expect("Failed to create image view");
 
                 (depth_image, depth_image_memory, depth_image_view)
             };
@@ -451,10 +448,8 @@ fn main() {
                                     surface_color_format,
                                     Swizzle::NO,
                                     color_range.clone(),
-                                )
-                                .unwrap()
-                        })
-                        .collect::<Vec<_>>();
+                                ).unwrap()
+                        }).collect::<Vec<_>>();
 
                     let fbos = image_views
                         .iter()
@@ -465,10 +460,8 @@ fn main() {
                                     // TODO: Explain
                                     vec![image_view, &depth_image_view],
                                     extent,
-                                )
-                                .unwrap()
-                        })
-                        .collect();
+                                ).unwrap()
+                        }).collect();
 
                     (image_views, fbos)
                 }
