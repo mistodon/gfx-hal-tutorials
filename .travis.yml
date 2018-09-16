@@ -15,6 +15,6 @@ matrix:
     - rust: stable
       env: GFX_MASTER=true
       script:
-        - ./ci/build-gfx-master
+        - (cd ci/gfx-master && cargo check)
   allow_failures:
     - env: GFX_MASTER=true
