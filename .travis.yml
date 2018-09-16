@@ -5,16 +5,12 @@ matrix:
     - rust: stable
       before_script:
         - rustup component add rustfmt-preview
+        - rustup component add clippy-preview
       script:
         - |
           cargo fmt -- --check &&
-          cargo build
-
-    - rust: nightly
-      before_script:
-        - rustup component add clippy-preview
-      script:
-        - cargo +nightly clippy -- -D clippy
+          cargo build &&
+          cargo clippy -- -D clippy
 
     - rust: stable
       env: GFX_MASTER=true
