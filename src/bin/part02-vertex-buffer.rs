@@ -265,7 +265,7 @@ fn main() {
         // 2    DEVICE_LOCAL | CPU_VISIBLE
         // 3    DEVICE_LOCAL | CPU_VISIBLE | CPU_CACHED
         //
-        // We then want to find the first type that is supported by out memory
+        // We then want to find the first type that is supported by our memory
         // requirements (e.g, `id` is in the `type_mask` bitfield), and also has
         // the CPU_VISIBLE property (so we can copy vertex data directly into it.)
         let upload_type = memory_types
