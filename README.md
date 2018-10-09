@@ -8,6 +8,7 @@ Each tutorial is covered by a blog post:
 
 - [Part 0: Drawing a triangle](https://falseidolfactory.com/2018/08/16/gfx-hal-part-0-drawing-a-triangle.html)
 - [Part 1: Resizing windows](https://falseidolfactory.com/2018/08/23/gfx-hal-part-1-resizing-windows.html)
+- [Part 2: Vertex buffers](https://falseidolfactory.com/2018/10/09/gfx-hal-part-2-vertex-buffers.html)
 
 ## Running tutorials
 
@@ -15,10 +16,10 @@ The following parts are finished:
 
 - `cargo run --bin part00-triangle`
 - `cargo run --bin part01-resizing`
+- `cargo run --bin part02-vertex-buffer [teapot]`
 
 The following parts should be considered WIP and are likely to change:
 
-- `cargo run --bin part02-vertex-buffer`
 - `cargo run --bin part03-uniforms`
 - `cargo run --bin part04-push-constants`
 - `cargo run --bin part05-depth`
