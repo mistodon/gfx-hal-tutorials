@@ -1,3 +1,8 @@
+Reminders for part 03
+===
+
+1.  Can the interface for the utility functions be nicer? (e.g. non-generic)
+
 Future topics
 ===
 

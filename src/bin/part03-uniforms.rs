@@ -10,6 +10,8 @@ extern crate gfx_backend_vulkan as backend;
 extern crate gfx_hal;
 extern crate winit;
 
+use std::time::Instant;
+use gfx_hal_tutorials::teapot;
 use gfx_hal_tutorials::prelude::*;
 
 // We moved our buffer creation to a utility method in this module so we can reuse
@@ -27,38 +29,13 @@ struct Vertex {
     color: [f32; 4],
 }
 
-const MESH: &[Vertex] = &[
-    Vertex {
-        position: [0.0, -1.0, 0.0],
-        color: [1.0, 0.0, 0.0, 1.0],
-    },
-    Vertex {
-        position: [-1.0, 0.0, 0.0],
-        color: [0.0, 0.0, 1.0, 1.0],
-    },
-    Vertex {
-        position: [0.0, 1.0, 0.0],
-        color: [0.0, 1.0, 0.0, 1.0],
-    },
-    Vertex {
-        position: [0.0, -1.0, 0.0],
-        color: [1.0, 0.0, 0.0, 1.0],
-    },
-    Vertex {
-        position: [0.0, 1.0, 0.0],
-        color: [0.0, 1.0, 0.0, 1.0],
-    },
-    Vertex {
-        position: [1.0, 0.0, 0.0],
-        color: [1.0, 1.0, 0.0, 1.0],
-    },
-];
 
 // Again, we need a struct that we can upload to a uniform buffer.
 // Here we're supplying a 4x4 "projection" matrix, which will just correct for our
 // aspect ratio, as we'll see later.
 // TODO: Repeat big warning about layout.
 #[derive(Debug, Clone, Copy)]
+#[repr(C)]
 struct UniformBlock {
     projection: [[f32; 4]; 4],
 }
@@ -229,12 +206,15 @@ fn main() {
 
     let memory_types = physical_device.memory_properties().memory_types;
 
+    // We're reusing this from the last part.
+    let mesh = load_teapot_mesh();
+
     let (vertex_buffer, vertex_buffer_memory) = utils::create_buffer::<Backend, Vertex>(
         &device,
         &memory_types,
         Properties::CPU_VISIBLE,
         buffer::Usage::VERTEX,
-        MESH,
+        &mesh,
     );
 
     // TODO: Explain both buffer and default value
@@ -262,6 +242,8 @@ fn main() {
     let mut swapchain_stuff: Option<(_, _, _, _)> = None;
 
     let mut rebuild_swapchain = false;
+
+    let start_time = Instant::now();
 
     loop {
         let mut quitting = false;
@@ -358,19 +340,24 @@ fn main() {
         // calls.
         let (width, height) = (extent.width, extent.height);
         let aspect_corrected_x = height as f32 / width as f32;
-        let zoom = 0.5;
+        let t = {
+            let elapsed = start_time.elapsed();
+            elapsed.as_secs() as f32 + elapsed.subsec_nanos() as f32 / 1_000_000_000.0
+        };
+        let zoom = t.cos() * 0.33 + 0.67;
         let x_scale = aspect_corrected_x * zoom;
         let y_scale = zoom;
+
 
         utils::fill_buffer::<Backend, UniformBlock>(
             &device,
             &mut uniform_memory,
             &[UniformBlock {
                 projection: [
-                    [x_scale, 0.0, 0.0, 0.0],
-                    [0.0, y_scale, 0.0, 0.0],
-                    [0.0, 0.0, 1.0, 0.0],
-                    [0.0, 0.0, 0.0, 1.0],
+                    [x_scale,      0.0,     0.0, 0.0],
+                    [0.0,          y_scale, 0.0, 0.0],
+                    [0.0,          0.0,     1.0, 0.0],
+                    [0.0,          0.0,     0.0, 1.0]
                 ],
             }],
         );
@@ -418,7 +405,7 @@ fn main() {
                     &[ClearValue::Color(ClearColor::Float([0.0, 0.0, 0.0, 1.0]))],
                 );
 
-                let num_vertices = MESH.len() as u32;
+                let num_vertices = mesh.len() as u32;
                 encoder.draw(0..num_vertices, 0..1);
             }
 
@@ -458,4 +445,19 @@ fn main() {
     device.free_memory(vertex_buffer_memory);
     device.destroy_fence(frame_fence);
     device.destroy_semaphore(frame_semaphore);
+}
+
+fn load_teapot_mesh() -> Vec<Vertex> {
+    let scale = 0.27;
+    teapot::TEAPOT_VERTICES
+        .chunks(3)
+        .map(|position| {
+            let x = position[0] * scale;
+            let y = position[1] * scale;
+            let z = position[2] * scale;
+            Vertex {
+                position: [x, y + 0.4, z],
+                color: [x.abs(), y.abs(), z.abs(), 1.0],
+            }
+        }).collect()
 }
