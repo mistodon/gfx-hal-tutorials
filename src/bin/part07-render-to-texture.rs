@@ -274,24 +274,25 @@ fn main() {
     };
 
     let mut desc_pool = device.create_descriptor_pool(
-        1,
+        2,
         &[
             DescriptorRangeDesc {
                 ty: DescriptorType::UniformBuffer,
-                count: 1,
+                count: 2,
             },
             DescriptorRangeDesc {
                 ty: DescriptorType::SampledImage,
-                count: 1,
+                count: 2,
             },
             DescriptorRangeDesc {
                 ty: DescriptorType::Sampler,
-                count: 1,
+                count: 2,
             },
         ],
     );
 
     let desc_set = desc_pool.allocate_set(&set_layout).unwrap();
+    let rtt_desc_set = desc_pool.allocate_set(&set_layout).unwrap();
 
     let memory_types = physical_device.memory_properties().memory_types;
 
@@ -313,12 +314,53 @@ fn main() {
         }],
     );
 
-    // TODO: Add another semaphore for the offscreen render
+    // TODO: Explain
+    let rtt_semaphore = device.create_semaphore();
     let frame_semaphore = device.create_semaphore();
     let frame_fence = device.create_fence(false);
 
     // TODO: Make an empty one of these for our destination texture
     // TODO: Also make a framebuffer binding it and the existing depth texture
+    let (rtt_image, rtt_memory, rtt_view, rtt_sampler, rtt_framebuffer, rtt_depth) = {
+        let extent = Extent {
+            width: 64,
+            height: 64,
+            depth: 1,
+        };
+
+        let (rtt_image, rtt_memory, rtt_view) = utils::create_image::<Backend>(
+            &device,
+            &memory_types,
+            extent.width,
+            extent.height,
+            Format::Rgba8Srgb,
+            img::Usage::SAMPLED,
+            Aspects::COLOR,
+        );
+
+        let (depth_image, depth_image_memory, depth_image_view) = utils::create_image::<Backend>(
+            &device,
+            &memory_types,
+            extent.width,
+            extent.height,
+            depth_format,
+            img::Usage::DEPTH_STENCIL_ATTACHMENT,
+            Aspects::DEPTH | Aspects::STENCIL,
+        );
+
+        let rtt_sampler = device.create_sampler(
+            img::SamplerInfo::new(Filter::Linear, WrapMode::Clamp));
+
+        let rtt_framebuffer = device.create_framebuffer(
+            &render_pass,
+            vec![&rtt_view, &depth_image_view],
+            extent,
+        ).unwrap();
+
+        (rtt_image, rtt_memory, rtt_view, rtt_sampler, rtt_framebuffer,
+         (depth_image, depth_image_memory, depth_image_view))
+    };
+
     let (texture_image, texture_memory, texture_view, texture_sampler) = {
         let image_bytes = include_bytes!("../../assets/texture.png");
         let img = image::load_from_memory(image_bytes.as_ref())
@@ -447,6 +489,27 @@ fn main() {
 
     device.write_descriptor_sets(vec![
         DescriptorSetWrite {
+            set: &rtt_desc_set,
+            binding: 0,
+            array_offset: 0,
+            descriptors: Some(Descriptor::Buffer(&uniform_buffer, None..None)),
+        },
+        DescriptorSetWrite {
+            set: &rtt_desc_set,
+            binding: 1,
+            array_offset: 0,
+            descriptors: Some(Descriptor::Image(&texture_view, Layout::Undefined)),
+        },
+        DescriptorSetWrite {
+            set: &rtt_desc_set,
+            binding: 2,
+            array_offset: 0,
+            descriptors: Some(Descriptor::Sampler(&texture_sampler)),
+        },
+    ]);
+
+    device.write_descriptor_sets(vec![
+        DescriptorSetWrite {
             set: &desc_set,
             binding: 0,
             array_offset: 0,
@@ -456,13 +519,13 @@ fn main() {
             set: &desc_set,
             binding: 1,
             array_offset: 0,
-            descriptors: Some(Descriptor::Image(&texture_view, Layout::Undefined)),
+            descriptors: Some(Descriptor::Image(&rtt_view, Layout::Undefined)),
         },
         DescriptorSetWrite {
             set: &desc_set,
             binding: 2,
             array_offset: 0,
-            descriptors: Some(Descriptor::Sampler(&texture_sampler)),
+            descriptors: Some(Descriptor::Sampler(&rtt_sampler)),
         },
     ]);
 
@@ -645,7 +708,63 @@ fn main() {
             }
         };
 
-        // TODO: Make one of these for the offscreen render
+        let offscreen_command_buffer = {
+            let mut command_buffer = command_pool.acquire_command_buffer(false);
+
+            let viewport = Viewport {
+                rect: Rect {
+                    x: 0,
+                    y: 0,
+                    w: 64,
+                    h: 64,
+                },
+                depth: 0.0..1.0,
+            };
+
+            command_buffer.set_viewports(0, &[viewport.clone()]);
+            command_buffer.set_scissors(0, &[viewport.rect]);
+
+            command_buffer.bind_graphics_pipeline(&pipeline);
+            command_buffer.bind_vertex_buffers(0, vec![(&vertex_buffer, 0)]);
+
+            command_buffer.bind_graphics_descriptor_sets(&pipeline_layout, 0, vec![&rtt_desc_set], &[]);
+
+            {
+                let mut encoder = command_buffer.begin_render_pass_inline(
+                    &render_pass,
+                    &rtt_framebuffer,
+                    viewport.rect,
+                    &[
+                        ClearValue::Color(ClearColor::Float([0.0, 0.0, 0.5, 1.0])),
+                        ClearValue::DepthStencil(ClearDepthStencil(1.0, 0)),
+                    ],
+                );
+
+                let num_vertices = MESH.len() as u32;
+
+                for diamond in &diamonds {
+                    encoder.push_graphics_constants(
+                        &pipeline_layout,
+                        ShaderStageFlags::VERTEX,
+                        0,
+                        utils::push_constant_data(diamond),
+                    );
+
+                    encoder.draw(0..num_vertices, 0..1);
+                }
+            }
+
+            command_buffer.finish()
+        };
+
+
+        let submission = Submission::new()
+            .wait_on(&[(&frame_semaphore, PipelineStage::BOTTOM_OF_PIPE)])
+            .signal(&[&rtt_semaphore])
+            .submit(vec![offscreen_command_buffer]);
+
+        queue_group.queues[0].submit(submission, None);
+
         let finished_command_buffer = {
             let mut command_buffer = command_pool.acquire_command_buffer(false);
 
@@ -696,7 +815,7 @@ fn main() {
         };
 
         let submission = Submission::new()
-            .wait_on(&[(&frame_semaphore, PipelineStage::BOTTOM_OF_PIPE)])
+            .wait_on(&[(&rtt_semaphore, PipelineStage::BOTTOM_OF_PIPE)])
             .submit(vec![finished_command_buffer]);
 
         queue_group.queues[0].submit(submission, Some(&frame_fence));
