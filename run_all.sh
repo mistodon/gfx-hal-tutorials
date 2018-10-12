@@ -2,13 +2,16 @@
 
 set -e
 
-cargo run --bin part00-triangle && \
-cargo run --bin part01-resizing && \
-cargo run --bin part02-vertex-buffer && \
-cargo run --bin part03-uniforms && \
-cargo run --bin part04-push-constants && \
-cargo run --bin part05-no-depth && \
-cargo run --bin part05-depth && \
-cargo run --bin part06-textures && \
-cargo run --bin part07-render-to-texture && \
+cargo build --bins
+
+./target/debug/part00-triangle
+./target/debug/part01-resizing
+./target/debug/part02-vertex-buffer
+./target/debug/part03-uniforms
+./target/debug/part04-push-constants
+./target/debug/part05-no-depth
+./target/debug/part05-depth
+./target/debug/part06-textures
+./target/debug/part07-render-to-texture
+
 echo "Done"
