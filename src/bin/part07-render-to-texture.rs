@@ -316,6 +316,7 @@ fn main() {
 
     // TODO: Explain
     let rtt_semaphore = device.create_semaphore();
+    let texture_fence = device.create_fence(false);
     let frame_semaphore = device.create_semaphore();
     let present_semaphore = device.create_semaphore();
 
@@ -480,7 +481,7 @@ fn main() {
             };
 
             let submission = Submission::new().submit(Some(submit));
-            queue_group.queues[0].submit(submission, None);
+            queue_group.queues[0].submit(submission, Some(&texture_fence));
 
             device.destroy_buffer(image_upload_buffer);
             device.free_memory(image_upload_memory);
@@ -488,6 +489,8 @@ fn main() {
 
         (texture_image, texture_memory, texture_view, texture_sampler)
     };
+
+    device.wait_for_fence(&texture_fence, !0);
 
     device.write_descriptor_sets(vec![
         DescriptorSetWrite {
