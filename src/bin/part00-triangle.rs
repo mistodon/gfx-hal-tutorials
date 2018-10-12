@@ -271,7 +271,7 @@ fn main() {
     // The frame fence is used to to allow us to wait until our draw commands have
     // finished before attempting to display the image.
     let frame_semaphore = device.create_semaphore();
-    let frame_fence = device.create_fence(false);
+    let present_semaphore = device.create_semaphore();
 
     // Mainloop starts here
     loop {
@@ -301,7 +301,6 @@ fn main() {
 
         // Start rendering
 
-        device.reset_fence(&frame_fence);
         command_pool.reset();
 
         // A swapchain contains multiple images - which one should we draw on? This
@@ -365,19 +364,23 @@ fn main() {
         // on.
         let submission = Submission::new()
             .wait_on(&[(&frame_semaphore, PipelineStage::BOTTOM_OF_PIPE)])
+            .signal(&[&present_semaphore])
             .submit(vec![finished_command_buffer]);
 
         // We submit the submission to one of our command queues, which will signal
         // frame_fence once rendering is completed.
-        queue_group.queues[0].submit(submission, Some(&frame_fence));
+        queue_group.queues[0].submit(submission, None);
 
         // We first wait for the rendering to complete...
-        device.wait_for_fence(&frame_fence, !0);
+        // TODO: Fix up for semaphores
 
         // ...and then present the image on screen!
         swapchain
-            .present(&mut queue_group.queues[0], frame_index, &[])
-            .expect("Present failed");
+            .present(
+                &mut queue_group.queues[0],
+                frame_index,
+                vec![&present_semaphore],
+            ).expect("Present failed");
     }
 
     // Cleanup
@@ -398,6 +401,7 @@ fn main() {
     device.destroy_shader_module(vertex_shader_module);
     device.destroy_shader_module(fragment_shader_module);
     device.destroy_command_pool(command_pool.into_raw());
-    device.destroy_fence(frame_fence);
+
     device.destroy_semaphore(frame_semaphore);
+    device.destroy_semaphore(present_semaphore);
 }
