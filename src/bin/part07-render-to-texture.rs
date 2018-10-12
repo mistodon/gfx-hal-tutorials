@@ -490,8 +490,6 @@ fn main() {
         (texture_image, texture_memory, texture_view, texture_sampler)
     };
 
-    device.wait_for_fence(&texture_fence, !0);
-
     device.write_descriptor_sets(vec![
         DescriptorSetWrite {
             set: &rtt_desc_set,
@@ -548,6 +546,8 @@ fn main() {
     let mut swapchain_stuff: Option<(_, _, _, _, _, _, _)> = None;
 
     let mut rebuild_swapchain = false;
+
+    device.wait_for_fence(&texture_fence, !0);
 
     loop {
         let mut quitting = false;
