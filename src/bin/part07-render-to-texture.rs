@@ -348,17 +348,21 @@ fn main() {
             Aspects::DEPTH | Aspects::STENCIL,
         );
 
-        let rtt_sampler = device.create_sampler(
-            img::SamplerInfo::new(Filter::Linear, WrapMode::Clamp));
+        let rtt_sampler =
+            device.create_sampler(img::SamplerInfo::new(Filter::Linear, WrapMode::Clamp));
 
-        let rtt_framebuffer = device.create_framebuffer(
-            &render_pass,
-            vec![&rtt_view, &depth_image_view],
-            extent,
-        ).unwrap();
+        let rtt_framebuffer = device
+            .create_framebuffer(&render_pass, vec![&rtt_view, &depth_image_view], extent)
+            .unwrap();
 
-        (rtt_image, rtt_memory, rtt_view, rtt_sampler, rtt_framebuffer,
-         (depth_image, depth_image_memory, depth_image_view))
+        (
+            rtt_image,
+            rtt_memory,
+            rtt_view,
+            rtt_sampler,
+            rtt_framebuffer,
+            (depth_image, depth_image_memory, depth_image_view),
+        )
     };
 
     let (texture_image, texture_memory, texture_view, texture_sampler) = {
@@ -727,7 +731,12 @@ fn main() {
             command_buffer.bind_graphics_pipeline(&pipeline);
             command_buffer.bind_vertex_buffers(0, vec![(&vertex_buffer, 0)]);
 
-            command_buffer.bind_graphics_descriptor_sets(&pipeline_layout, 0, vec![&rtt_desc_set], &[]);
+            command_buffer.bind_graphics_descriptor_sets(
+                &pipeline_layout,
+                0,
+                vec![&rtt_desc_set],
+                &[],
+            );
 
             {
                 let mut encoder = command_buffer.begin_render_pass_inline(
@@ -756,7 +765,6 @@ fn main() {
 
             command_buffer.finish()
         };
-
 
         let submission = Submission::new()
             .wait_on(&[(&frame_semaphore, PipelineStage::BOTTOM_OF_PIPE)])
