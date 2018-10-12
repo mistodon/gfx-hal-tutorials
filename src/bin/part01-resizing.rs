@@ -135,7 +135,7 @@ fn main() {
     };
 
     let frame_semaphore = device.create_semaphore();
-    let frame_fence = device.create_fence(false);
+    let present_semaphore = device.create_semaphore();
 
     // We're going to defer the construction of our swapchain, extent, image views,
     // and framebuffers until the mainloop, because we will need to repeat it
@@ -262,7 +262,6 @@ fn main() {
 
         // The rest of our rendering happens exactly the same way as before.
 
-        device.reset_fence(&frame_fence);
         command_pool.reset();
 
         let frame_index: SwapImageIndex = {
@@ -309,13 +308,16 @@ fn main() {
 
         let submission = Submission::new()
             .wait_on(&[(&frame_semaphore, PipelineStage::BOTTOM_OF_PIPE)])
+            .signal(&[&present_semaphore])
             .submit(vec![finished_command_buffer]);
 
-        queue_group.queues[0].submit(submission, Some(&frame_fence));
+        queue_group.queues[0].submit(submission, None);
 
-        device.wait_for_fence(&frame_fence, !0);
-
-        let result = swapchain.present(&mut queue_group.queues[0], frame_index, &[]);
+        let result = swapchain.present(
+            &mut queue_group.queues[0],
+            frame_index,
+            vec![&present_semaphore],
+        );
 
         if result.is_err() {
             rebuild_swapchain = true;
@@ -332,6 +334,6 @@ fn main() {
     device.destroy_shader_module(vertex_shader_module);
     device.destroy_shader_module(fragment_shader_module);
     device.destroy_command_pool(command_pool.into_raw());
-    device.destroy_fence(frame_fence);
+
     device.destroy_semaphore(frame_semaphore);
 }

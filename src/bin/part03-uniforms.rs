@@ -10,9 +10,9 @@ extern crate gfx_backend_vulkan as backend;
 extern crate gfx_hal;
 extern crate winit;
 
-use std::time::Instant;
-use gfx_hal_tutorials::teapot;
 use gfx_hal_tutorials::prelude::*;
+use gfx_hal_tutorials::teapot;
+use std::time::Instant;
 
 // We moved our buffer creation to a utility method in this module so we can reuse
 // it for uniform buffers.
@@ -28,7 +28,6 @@ struct Vertex {
     position: [f32; 3],
     color: [f32; 4],
 }
-
 
 // Again, we need a struct that we can upload to a uniform buffer.
 // Here we're supplying a 4x4 "projection" matrix, which will just correct for our
@@ -237,16 +236,22 @@ fn main() {
     }]);
 
     let frame_semaphore = device.create_semaphore();
-    let frame_fence = device.create_fence(false);
+    let present_semaphore = device.create_semaphore();
 
     let mut swapchain_stuff: Option<(_, _, _, _)> = None;
 
     let mut rebuild_swapchain = false;
 
     let start_time = Instant::now();
+    let mut last_time = start_time;
 
     loop {
         let mut quitting = false;
+
+        let now = Instant::now();
+        let delta = now.duration_since(last_time);
+        println!("dt: {:?}", delta);
+        last_time = now;
 
         events_loop.poll_events(|event| {
             if let Event::WindowEvent { event, .. } = event {
@@ -348,21 +353,19 @@ fn main() {
         let x_scale = aspect_corrected_x * zoom;
         let y_scale = zoom;
 
-
         utils::fill_buffer::<Backend, UniformBlock>(
             &device,
             &mut uniform_memory,
             &[UniformBlock {
                 projection: [
-                    [x_scale,      0.0,     0.0, 0.0],
-                    [0.0,          y_scale, 0.0, 0.0],
-                    [0.0,          0.0,     1.0, 0.0],
-                    [0.0,          0.0,     0.0, 1.0]
+                    [x_scale, 0.0, 0.0, 0.0],
+                    [0.0, y_scale, 0.0, 0.0],
+                    [0.0, 0.0, 1.0, 0.0],
+                    [0.0, 0.0, 0.0, 1.0],
                 ],
             }],
         );
 
-        device.reset_fence(&frame_fence);
         command_pool.reset();
 
         let frame_index: SwapImageIndex = {
@@ -414,13 +417,16 @@ fn main() {
 
         let submission = Submission::new()
             .wait_on(&[(&frame_semaphore, PipelineStage::BOTTOM_OF_PIPE)])
+            .signal(&[&present_semaphore])
             .submit(vec![finished_command_buffer]);
 
-        queue_group.queues[0].submit(submission, Some(&frame_fence));
+        queue_group.queues[0].submit(submission, None);
 
-        device.wait_for_fence(&frame_fence, !0);
-
-        let result = swapchain.present(&mut queue_group.queues[0], frame_index, &[]);
+        let result = swapchain.present(
+            &mut queue_group.queues[0],
+            frame_index,
+            vec![&present_semaphore],
+        );
 
         if result.is_err() {
             rebuild_swapchain = true;
@@ -443,8 +449,8 @@ fn main() {
 
     device.destroy_buffer(vertex_buffer);
     device.free_memory(vertex_buffer_memory);
-    device.destroy_fence(frame_fence);
     device.destroy_semaphore(frame_semaphore);
+    device.destroy_semaphore(present_semaphore);
 }
 
 fn load_teapot_mesh() -> Vec<Vertex> {

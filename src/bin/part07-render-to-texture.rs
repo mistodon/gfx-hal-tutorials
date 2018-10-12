@@ -317,7 +317,7 @@ fn main() {
     // TODO: Explain
     let rtt_semaphore = device.create_semaphore();
     let frame_semaphore = device.create_semaphore();
-    let frame_fence = device.create_fence(false);
+    let present_semaphore = device.create_semaphore();
 
     // TODO: Make an empty one of these for our destination texture
     // TODO: Also make a framebuffer binding it and the existing depth texture
@@ -480,9 +480,7 @@ fn main() {
             };
 
             let submission = Submission::new().submit(Some(submit));
-            queue_group.queues[0].submit(submission, Some(&frame_fence));
-
-            device.wait_for_fence(&frame_fence, !0);
+            queue_group.queues[0].submit(submission, None);
 
             device.destroy_buffer(image_upload_buffer);
             device.free_memory(image_upload_memory);
@@ -699,7 +697,6 @@ fn main() {
             }],
         );
 
-        device.reset_fence(&frame_fence);
         command_pool.reset();
 
         let frame_index: SwapImageIndex = {
@@ -768,6 +765,7 @@ fn main() {
 
         let submission = Submission::new()
             .wait_on(&[(&frame_semaphore, PipelineStage::BOTTOM_OF_PIPE)])
+            .signal(&[&present_semaphore])
             .signal(&[&rtt_semaphore])
             .submit(vec![offscreen_command_buffer]);
 
@@ -824,17 +822,21 @@ fn main() {
 
         let submission = Submission::new()
             .wait_on(&[(&rtt_semaphore, PipelineStage::BOTTOM_OF_PIPE)])
+            .signal(&[&present_semaphore])
             .submit(vec![finished_command_buffer]);
 
-        queue_group.queues[0].submit(submission, Some(&frame_fence));
+        queue_group.queues[0].submit(submission, None);
 
         // TODO: In first submission, signal the offscreen semaphore and submit
         // the final image render.
 
         // TODO: Find out why we're using a fence and if we could use a semaphore.
-        device.wait_for_fence(&frame_fence, !0);
 
-        let result = swapchain.present(&mut queue_group.queues[0], frame_index, &[]);
+        let result = swapchain.present(
+            &mut queue_group.queues[0],
+            frame_index,
+            vec![&present_semaphore],
+        );
 
         if result.is_err() {
             rebuild_swapchain = true;
@@ -858,6 +860,6 @@ fn main() {
     device.free_memory(uniform_memory);
     device.destroy_buffer(vertex_buffer);
     device.free_memory(vertex_buffer_memory);
-    device.destroy_fence(frame_fence);
+
     device.destroy_semaphore(frame_semaphore);
 }
