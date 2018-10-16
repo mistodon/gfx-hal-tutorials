@@ -741,5 +741,7 @@ fn main() {
     device.destroy_buffer(vertex_buffer);
     device.free_memory(vertex_buffer_memory);
 
+    device.destroy_semaphore(present_semaphore);
     device.destroy_semaphore(frame_semaphore);
+    device.destroy_fence(texture_fence);
 }
