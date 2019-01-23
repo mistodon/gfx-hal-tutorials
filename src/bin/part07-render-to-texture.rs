@@ -768,7 +768,6 @@ fn main() {
 
         let submission = Submission::new()
             .wait_on(&[(&frame_semaphore, PipelineStage::BOTTOM_OF_PIPE)])
-            .signal(&[&present_semaphore])
             .signal(&[&rtt_semaphore])
             .submit(vec![offscreen_command_buffer]);
 
