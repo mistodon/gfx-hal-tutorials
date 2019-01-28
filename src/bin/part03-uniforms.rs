@@ -320,8 +320,10 @@ fn main() {
                                     surface_color_format,
                                     Swizzle::NO,
                                     color_range.clone(),
-                                ).unwrap()
-                        }).collect::<Vec<_>>();
+                                )
+                                .unwrap()
+                        })
+                        .collect::<Vec<_>>();
 
                     let fbos = image_views
                         .iter()
@@ -329,7 +331,8 @@ fn main() {
                             device
                                 .create_framebuffer(&render_pass, vec![image_view], extent)
                                 .unwrap()
-                        }).collect();
+                        })
+                        .collect();
 
                     (image_views, fbos)
                 }
@@ -465,5 +468,6 @@ fn load_teapot_mesh() -> Vec<Vertex> {
                 position: [x, y + 0.4, z],
                 color: [x.abs(), y.abs(), z.abs(), 1.0],
             }
-        }).collect()
+        })
+        .collect()
 }

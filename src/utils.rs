@@ -112,7 +112,8 @@ pub fn create_image<B: Backend>(
             img::Tiling::Optimal,
             usage,
             ViewCapabilities::empty(),
-        ).expect("Failed to create unbound image");
+        )
+        .expect("Failed to create unbound image");
 
     let image_req = device.get_image_requirements(&unbound_image);
 
@@ -122,7 +123,8 @@ pub fn create_image<B: Backend>(
         .position(|(id, memory_type)| {
             image_req.type_mask & (1 << id) != 0
                 && memory_type.properties.contains(Properties::DEVICE_LOCAL)
-        }).unwrap()
+        })
+        .unwrap()
         .into();
 
     let image_memory = device
@@ -144,7 +146,8 @@ pub fn create_image<B: Backend>(
                 levels: 0..1,
                 layers: 0..1,
             },
-        ).expect("Failed to create image view");
+        )
+        .expect("Failed to create image view");
 
     (image, image_memory, image_view)
 }
