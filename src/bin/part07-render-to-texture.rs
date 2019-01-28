@@ -410,7 +410,7 @@ fn main() {
 
                 for y in 0..height as usize {
                     let row = &(*img)[y * (width as usize) * image_stride
-                                          ..(y + 1) * (width as usize) * image_stride];
+                        ..(y + 1) * (width as usize) * image_stride];
                     let dest_base = y * row_pitch as usize;
                     data[dest_base..dest_base + row.len()].copy_from_slice(row);
                 }
@@ -641,8 +641,10 @@ fn main() {
                                     surface_color_format,
                                     Swizzle::NO,
                                     color_range.clone(),
-                                ).unwrap()
-                        }).collect::<Vec<_>>();
+                                )
+                                .unwrap()
+                        })
+                        .collect::<Vec<_>>();
 
                     let fbos = image_views
                         .iter()
@@ -652,8 +654,10 @@ fn main() {
                                     &render_pass,
                                     vec![image_view, &depth_image_view],
                                     extent,
-                                ).unwrap()
-                        }).collect();
+                                )
+                                .unwrap()
+                        })
+                        .collect();
 
                     (image_views, fbos)
                 }
