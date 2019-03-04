@@ -28,7 +28,7 @@ The following parts should be considered WIP and are likely to change:
 
 ## Shaders
 
-Shaders are written in GLSL and can be found under `source_assets/shaders`. The `build.rs` file in the root compiles them to SPIR-V at build time. (See [this post](https://falseidolfactory.com/2018/06/23/compiling-glsl-to-spirv-at-build-time.html) for details.)
+Shaders are written in GLSL and can be found under `source_assets/shaders`. The `utils.rs` file in the root compiles them to SPIR-V at build time. (See [this post](https://falseidolfactory.com/2018/06/23/compiling-glsl-to-spirv-at-build-time.html) for details.)
 
 ## Contributing
 
