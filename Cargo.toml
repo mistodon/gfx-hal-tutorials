@@ -2,26 +2,21 @@
 name = "gfx-hal-tutorials"
 version = "0.1.0"
 authors = ["Claire Harris <wishing.engine@gmail.com>"]
+edition = "2018"
 
 [dependencies]
-image = "~0.19.0"
-winit = "=0.17.2"
+gfx-hal = "=0.4.1"
+glsl-to-spirv = "=0.1.7"
+winit = "=0.20.0"
 
-[dependencies.gfx-hal]
-git = "https://github.com/gfx-rs/gfx"
-rev = "7b7a6353"
-
-[target.'cfg(target_os = "macos")'.dependencies.gfx-backend-metal]
-git = "https://github.com/gfx-rs/gfx"
-rev = "7b7a6353"
+[target.'cfg(target_os = "macos")'.dependencies.backend]
+package = "gfx-backend-metal"
+version = "=0.4.2"
 
 [target.'cfg(windows)'.dependencies.gfx-backend-dx12]
-git = "https://github.com/gfx-rs/gfx"
-rev = "7b7a6353"
+package = "gfx-backend-dx12"
+version = "=0.4.3"
 
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies.gfx-backend-vulkan]
-git = "https://github.com/gfx-rs/gfx"
-rev = "7b7a6353"
-
-[build-dependencies]
-glsl-to-spirv = "=0.1.6"
+package = "gfx-backend-vulkan"
+version = "=0.4.0"

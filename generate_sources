@@ -1,0 +1,5 @@
+#!/bin/bash
+
+set -e
+
+asciidoctor --destination-dir src/bin doc/rs/*.adoc
