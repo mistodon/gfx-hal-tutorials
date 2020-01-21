@@ -2,4 +2,5 @@
 
 set -e
 
-# cargo check
+./generate_sources
+cargo check --bins
