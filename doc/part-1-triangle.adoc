@@ -20,7 +20,7 @@ fn main() {
     let event_loop = winit::event_loop::EventLoop::new();
 end::main_start[]
 
-    ...
+    // ...
 }
 ----
 
@@ -89,7 +89,6 @@ tag::event_loop_start[]
                         height: dims.height,
                     };
                     should_rebuild_swapchain = true;
-
                 }
                 WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
                     surface_extent = Extent2D {
@@ -103,7 +102,7 @@ tag::event_loop_start[]
             Event::MainEventsCleared => window.request_redraw(),
             Event::RedrawRequested(_) => {
 end::event_loop_start[]
-                ...
+                // ...
 tag::event_loop_end[]
             }
             _ => (),
@@ -130,6 +129,8 @@ tag::instance[]
     };
 end::instance[]
 ----
+
+_TODO_: Talk about panics due to un-cleaned-up resources, and that we'll fix it later.
 
 [source,rust]
 ----
@@ -158,20 +159,6 @@ tag::device[]
     };
 end::device[]
 ----
-
-[source,rust]
-----
-tag::command_pool[]
-    let mut command_pool = unsafe {
-        use gfx_hal::pool::CommandPoolCreateFlags;
-
-        device
-            .create_command_pool(queue_group.family, CommandPoolCreateFlags::empty())
-            .expect("TODO")
-    };
-end::command_pool[]
-----
-
 
 [source,rust]
 ----
@@ -225,3 +212,383 @@ tag::render_pass[]
 end::render_pass[]
 ----
 
+[source,rust]
+----
+tag::pipeline_layout[]
+    let pipeline_layout = unsafe { device.create_pipeline_layout(&[], &[]).expect("TODO") };
+end::pipeline_layout[]
+----
+
+[source,rust]
+----
+tag::pipeline_start[]
+    let pipeline = {
+        use gfx_hal::pass::Subpass;
+        use gfx_hal::pso::{
+            self, BlendState, ColorBlendDesc, ColorMask, EntryPoint, GraphicsPipelineDesc,
+            GraphicsShaderSet, Primitive, Rasterizer, Specialization,
+        };
+        use glsl_to_spirv::ShaderType;
+
+end::pipeline_start[]
+        // ...
+tag::pipeline_end[]
+    };
+end::pipeline_end[]
+----
+
+[source,rust]
+----
+tag::pipeline_compile_shader[]
+        let compile_shader = |glsl, shader_type| {
+            use std::io::{Cursor, Read};
+
+            let mut spirv_bytes = vec![];
+            let mut compiled_file = glsl_to_spirv::compile(glsl, shader_type).expect("TODO");
+            compiled_file.read_to_end(&mut spirv_bytes).expect("TODO");
+            let spirv = pso::read_spirv(Cursor::new(&spirv_bytes)).expect("TODO");
+            unsafe { device.create_shader_module(&spirv).expect("TODO") }
+        };
+
+        let vertex_shader_module =
+            compile_shader(include_str!("shaders/part-1.vert"), ShaderType::Vertex);
+
+        let fragment_shader_module =
+            compile_shader(include_str!("shaders/part-1.frag"), ShaderType::Fragment);
+end::pipeline_compile_shader[]
+----
+
+[source,rust]
+----
+tag::pipeline_shader_entries[]
+        let (vs_entry, fs_entry) = (
+            EntryPoint {
+                entry: "main",
+                module: &vertex_shader_module,
+                specialization: Specialization::default(),
+            },
+            EntryPoint {
+                entry: "main",
+                module: &fragment_shader_module,
+                specialization: Specialization::default(),
+            },
+        );
+
+        let shader_entries = GraphicsShaderSet {
+            vertex: vs_entry,
+            hull: None,
+            domain: None,
+            geometry: None,
+            fragment: Some(fs_entry),
+        };
+end::pipeline_shader_entries[]
+----
+
+[source,rust]
+----
+tag::pipeline_desc[]
+        let mut pipeline_desc = GraphicsPipelineDesc::new(
+            shader_entries,
+            Primitive::TriangleList,
+            Rasterizer::FILL,
+            &pipeline_layout,
+            Subpass {
+                index: 0,
+                main_pass: &render_pass,
+            },
+        );
+
+        pipeline_desc.blender.targets.push(ColorBlendDesc {
+            mask: ColorMask::ALL,
+            blend: Some(BlendState::ALPHA),
+        });
+end::pipeline_desc[]
+----
+
+[source,rust]
+----
+tag::pipeline_create[]
+        unsafe {
+            let pipeline = device
+                .create_graphics_pipeline(&pipeline_desc, None)
+                .expect("TODO");
+
+            device.destroy_shader_module(vertex_shader_module);
+            device.destroy_shader_module(fragment_shader_module);
+
+            pipeline
+        }
+end::pipeline_create[]
+----
+
+[source,rust]
+----
+tag::command_pool[]
+    let (command_pool, mut command_buffer) = unsafe {
+        use gfx_hal::command::Level;
+        use gfx_hal::pool::{CommandPool, CommandPoolCreateFlags};
+
+        let mut command_pool = device
+            .create_command_pool(queue_group.family, CommandPoolCreateFlags::empty())
+            .expect("TODO");
+        let command_buffer = command_pool.allocate_one(Level::Primary);
+
+        (command_pool, command_buffer)
+    };
+end::command_pool[]
+----
+
+[source,rust]
+----
+tag::concurrency_primitives[]
+    let submission_complete_semaphore = device.create_semaphore().expect("TODO");
+    let submission_complete_fence = device.create_fence(true).expect("TODO");
+end::concurrency_primitives[]
+----
+
+We have now created everything that we need to start rendering. But here's the part that sucks: we have to clean up after ourselves. Winit doesn't make this easy. Winit will drop them, but we don't want them to drop - we want to delete them. So first of all we'll group everything we need to destroy into one struct. (Rule of thumb: if you called a function called `create_<something>`, then it goes here.)
+
+[source,rust]
+----
+tag::resources_struct[]
+    // TODO: Order sensibly
+    struct Resources<B: gfx_hal::Backend> {
+        instance: B::Instance,
+        surface: B::Surface,
+        device: B::Device,
+        render_pass: B::RenderPass,
+        pipeline_layout: B::PipelineLayout,
+        pipeline: B::GraphicsPipeline,
+        command_pool: B::CommandPool,
+        submission_complete_semaphore: B::Semaphore,
+        submission_complete_fence: B::Fence,
+    }
+end::resources_struct[]
+----
+
+Now unfortunately, we can't implement `Drop` for this struct directly. This is because the signature of `drop` takes a `&mut self` parameter, while the signatures of the `destroy_<something>` functions take a `self` parameter (by move).
+
+So we need a way to move our resources _out_ of a `&mut` reference. One way to do this is to put our resources in an `Option`, and use the `take` method to pull out the contents:
+
+_TODO_: Add a footnote about ManuallyDrop
+
+[source,rust]
+----
+tag::resource_holder_struct[]
+    struct ResourceHolder<B: gfx_hal::Backend>(Option<Resources<B>>);
+
+    impl<B: gfx_hal::Backend> Drop for ResourceHolder<B> {
+        fn drop(&mut self) {
+            let Resources {
+                instance,
+                surface,
+                device,
+                command_pool,
+                render_pass,
+                pipeline_layout,
+                pipeline,
+                submission_complete_semaphore,
+                submission_complete_fence,
+            } = self.0.take().unwrap();
+
+            // Clean up resources
+            unsafe {
+                device.destroy_fence(submission_complete_fence);
+                device.destroy_semaphore(submission_complete_semaphore);
+                device.destroy_graphics_pipeline(pipeline);
+                device.destroy_pipeline_layout(pipeline_layout);
+                device.destroy_render_pass(render_pass);
+                device.destroy_command_pool(command_pool);
+                instance.destroy_surface(surface);
+            }
+        }
+    }
+end::resource_holder_struct[]
+----
+
+Now we can instantiate this struct, which will be moved into the event loop and dropped when the program exits, calling all of our destructors.
+
+[source,rust]
+----
+tag::resources[]
+    let mut resource_holder: ResourceHolder<backend::Backend> = ResourceHolder(Some(Resources {
+        instance,
+        surface,
+        device,
+        command_pool,
+        render_pass,
+        pipeline_layout,
+        pipeline,
+        submission_complete_semaphore,
+        submission_complete_fence,
+    }));
+end::resources[]
+----
+
+Our app setup is finally done! Now for our per-frame rendering code.
+
+First, let's return to our `RedrawRequested` event and prepare a few things:
+
+[source,rust]
+----
+            Event::RedrawRequested(_) => {
+tag::rendering_prep[]
+                use gfx_hal::window::PresentationSurface;
+
+                let res = resource_holder.0.as_mut().unwrap();
+
+                let mut viewport = {
+                    use gfx_hal::pso::{Rect, Viewport};
+
+                    Viewport {
+                        rect: Rect {
+                            x: 0,
+                            y: 0,
+                            w: surface_extent.width as i16,
+                            h: surface_extent.height as i16,
+                        },
+                        depth: 0.0..1.0,
+                    }
+                };
+end::rendering_prep[]
+            }
+----
+
+Next up, we're going to finally configure the swapchain. Remember the `should_rebuild_swapchain` variable we declared? I hope you initialized it to `true`, because this is how we make sure it's ready for the first frame:
+
+[source,rust]
+----
+tag::rebuild_swapchain[]
+                if should_rebuild_swapchain {
+                    use gfx_hal::window::SwapchainConfig;
+
+                    let caps = res.surface.capabilities(&adapter.physical_device);
+                    let mut swap_config =
+                        SwapchainConfig::from_caps(&caps, surface_color_format, surface_extent);
+                    if caps.image_count.contains(&3) {
+                        swap_config.image_count = 3;
+                    }
+
+                    surface_extent = swap_config.extent;
+
+                    unsafe {
+                        res.surface
+                            .configure_swapchain(&res.device, swap_config)
+                            .expect("TODO");
+                    };
+
+                    viewport.rect.w = surface_extent.width as _;
+                    viewport.rect.h = surface_extent.height as _;
+                    should_rebuild_swapchain = false;
+                }
+end::rebuild_swapchain[]
+----
+
+[source,rust]
+----
+tag::framebuffer[]
+                let surface_image = unsafe {
+                    match res.surface.acquire_image(!0) {
+                        Ok((image, _)) => image,
+                        Err(_) => {
+                            should_rebuild_swapchain = true;
+                            return;
+                        }
+                    }
+                };
+
+                let framebuffer = unsafe {
+                    use std::borrow::Borrow;
+
+                    use gfx_hal::image::Extent;
+
+                    res.device
+                        .create_framebuffer(
+                            &res.render_pass,
+                            vec![surface_image.borrow()],
+                            Extent {
+                                width: surface_extent.width,
+                                height: surface_extent.height,
+                                depth: 1,
+                            },
+                        )
+                        .unwrap()
+                };
+end::framebuffer[]
+----
+
+[source,rust]
+----
+tag::fences[]
+                unsafe {
+                    use gfx_hal::pool::CommandPool;
+
+                    let render_timeout_ns = 1_000_000_000;
+                    res.device
+                        .wait_for_fence(&res.submission_complete_fence, render_timeout_ns)
+                        .expect("TODO");
+                    res.device
+                        .reset_fence(&res.submission_complete_fence)
+                        .expect("TODO");
+                    res.command_pool.reset(false);
+                }
+end::fences[]
+----
+
+[source,rust]
+----
+tag::commands[]
+                unsafe {
+                    use gfx_hal::command::{
+                        ClearColor, ClearValue, CommandBuffer, CommandBufferFlags, SubpassContents,
+                    };
+
+                    command_buffer.begin_primary(CommandBufferFlags::ONE_TIME_SUBMIT);
+
+                    command_buffer.set_viewports(0, &[viewport.clone()]);
+                    command_buffer.set_scissors(0, &[viewport.rect]);
+                    command_buffer.bind_graphics_pipeline(&res.pipeline);
+
+                    command_buffer.begin_render_pass(
+                        &res.render_pass,
+                        &framebuffer,
+                        viewport.rect,
+                        &[ClearValue {
+                            color: ClearColor {
+                                float32: [0.0, 0.0, 0.0, 1.0],
+                            },
+                        }],
+                        SubpassContents::Inline,
+                    );
+                    command_buffer.draw(0..3, 0..1);
+                    command_buffer.end_render_pass();
+                    command_buffer.finish();
+                }
+end::commands[]
+----
+
+[source,rust]
+----
+tag::submit[]
+                unsafe {
+                    use gfx_hal::queue::{CommandQueue, Submission};
+
+                    let submission = Submission {
+                        command_buffers: vec![&command_buffer],
+                        wait_semaphores: None,
+                        signal_semaphores: vec![&res.submission_complete_semaphore],
+                    };
+                    queue_group.queues[0].submit(submission, Some(&res.submission_complete_fence));
+
+                    let result = queue_group.queues[0].present_surface(
+                        &mut res.surface,
+                        surface_image,
+                        Some(&res.submission_complete_semaphore),
+                    );
+
+                    res.device.destroy_framebuffer(framebuffer);
+
+                    should_rebuild_swapchain |= result.is_err();
+                }
+end::submit[]
+----

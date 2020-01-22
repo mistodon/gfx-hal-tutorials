@@ -1,0 +1,6 @@
+#!/bin/bash
+
+set -e
+
+asciidoctor -b docbook -a leveloffset=+1 -o - "$1" | pandoc  --atx-headers --wrap=preserve -t gfm -f docbook - | sed -E '/^(tag|end)::[a-z0-9_]*\[\]/d' > "$2"
+

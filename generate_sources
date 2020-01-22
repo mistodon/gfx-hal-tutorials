@@ -3,3 +3,4 @@
 set -e
 
 asciidoctor --destination-dir src/bin doc/rs/*.adoc
+for rs_file in $(ls src/bin/part*.rs); do echo >> $rs_file; done

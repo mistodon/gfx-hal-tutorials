@@ -4,3 +4,4 @@ set -e
 
 ./generate_sources
 cargo check --bins
+cargo fmt -- --check

@@ -63,14 +63,6 @@ fn main() {
         (gpu.device, gpu.queue_groups.pop().expect("TODO"))
     };
 
-    let mut command_pool = unsafe {
-        use gfx_hal::pool::CommandPoolCreateFlags;
-
-        device
-            .create_command_pool(queue_group.family, CommandPoolCreateFlags::empty())
-            .expect("TODO")
-    };
-
     let surface_color_format = {
         use gfx_hal::format::{ChannelType, Format};
 
@@ -113,14 +105,7 @@ fn main() {
         }
     };
 
-    let pipeline_layout = unsafe {
-        use gfx_hal::pso::ShaderStageFlags;
-
-        // TODO: Can we simplify the layout? No vertex buffer so...
-        device
-            .create_pipeline_layout(&[], &[(ShaderStageFlags::VERTEX, 0..8)])
-            .expect("Can't create pipeline layout")
-    };
+    let pipeline_layout = unsafe { device.create_pipeline_layout(&[], &[]).expect("TODO") };
 
     let pipeline = {
         use gfx_hal::pass::Subpass;
@@ -167,17 +152,15 @@ fn main() {
             fragment: Some(fs_entry),
         };
 
-        let subpass = Subpass {
-            index: 0,
-            main_pass: &render_pass,
-        };
-
         let mut pipeline_desc = GraphicsPipelineDesc::new(
             shader_entries,
             Primitive::TriangleList,
             Rasterizer::FILL,
             &pipeline_layout,
-            subpass,
+            Subpass {
+                index: 0,
+                main_pass: &render_pass,
+            },
         );
 
         pipeline_desc.blender.targets.push(ColorBlendDesc {
@@ -197,24 +180,30 @@ fn main() {
         }
     };
 
+    let (command_pool, mut command_buffer) = unsafe {
+        use gfx_hal::command::Level;
+        use gfx_hal::pool::{CommandPool, CommandPoolCreateFlags};
+
+        let mut command_pool = device
+            .create_command_pool(queue_group.family, CommandPoolCreateFlags::empty())
+            .expect("TODO");
+        let command_buffer = command_pool.allocate_one(Level::Primary);
+
+        (command_pool, command_buffer)
+    };
+
     let submission_complete_semaphore = device.create_semaphore().expect("TODO");
     let submission_complete_fence = device.create_fence(true).expect("TODO");
-    let mut command_buffer = unsafe {
-        use gfx_hal::command::Level;
-        use gfx_hal::pool::CommandPool;
-
-        command_pool.allocate_one(Level::Primary)
-    };
 
     // TODO: Order sensibly
     struct Resources<B: gfx_hal::Backend> {
         instance: B::Instance,
         surface: B::Surface,
         device: B::Device,
-        command_pool: B::CommandPool,
         render_pass: B::RenderPass,
         pipeline_layout: B::PipelineLayout,
         pipeline: B::GraphicsPipeline,
+        command_pool: B::CommandPool,
         submission_complete_semaphore: B::Semaphore,
         submission_complete_fence: B::Fence,
     }
@@ -275,7 +264,6 @@ fn main() {
                         height: dims.height,
                     };
                     should_rebuild_swapchain = true;
-
                 }
                 WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
                     surface_extent = Extent2D {
@@ -288,7 +276,6 @@ fn main() {
             },
             Event::MainEventsCleared => window.request_redraw(),
             Event::RedrawRequested(_) => {
-                use gfx_hal::image::Extent;
                 use gfx_hal::window::PresentationSurface;
 
                 let res = resource_holder.0.as_mut().unwrap();
@@ -311,8 +298,11 @@ fn main() {
                     use gfx_hal::window::SwapchainConfig;
 
                     let caps = res.surface.capabilities(&adapter.physical_device);
-                    let swap_config =
+                    let mut swap_config =
                         SwapchainConfig::from_caps(&caps, surface_color_format, surface_extent);
+                    if caps.image_count.contains(&3) {
+                        swap_config.image_count = 3;
+                    }
 
                     surface_extent = swap_config.extent;
 
@@ -324,6 +314,7 @@ fn main() {
 
                     viewport.rect.w = surface_extent.width as _;
                     viewport.rect.h = surface_extent.height as _;
+                    should_rebuild_swapchain = false;
                 }
 
                 let surface_image = unsafe {
@@ -338,6 +329,8 @@ fn main() {
 
                 let framebuffer = unsafe {
                     use std::borrow::Borrow;
+
+                    use gfx_hal::image::Extent;
 
                     res.device
                         .create_framebuffer(
@@ -355,8 +348,9 @@ fn main() {
                 unsafe {
                     use gfx_hal::pool::CommandPool;
 
+                    let render_timeout_ns = 1_000_000_000;
                     res.device
-                        .wait_for_fence(&res.submission_complete_fence, !0)
+                        .wait_for_fence(&res.submission_complete_fence, render_timeout_ns)
                         .expect("TODO");
                     res.device
                         .reset_fence(&res.submission_complete_fence)
