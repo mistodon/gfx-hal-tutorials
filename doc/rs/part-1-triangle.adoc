@@ -2,125 +2,28 @@
 :outfilesuffix: .rs
 
 ++++
-// TODO: Reorder declarations so that they're as close to their usage sites as they can be
-// TODO: Try to create the window with a LogicalSize directly - without screwing
-//  up swapchain dimensions.
-// TODO: Look at the error types for every `expect` to set a good message.
+include::../part-1-triangle.adoc[tag=main_start]
 
-fn main() {
-    use gfx_hal::{device::Device, window::Surface, Instance as _};
+include::../part-1-triangle.adoc[tag=window_size]
 
-    const APP_NAME: &'static str = "Part 1: Drawing a triangle";
-    const WINDOW_SIZE: [u32; 2] = [256, 256];
+include::../part-1-triangle.adoc[tag=surface_extent]
 
-    let event_loop = winit::event_loop::EventLoop::new();
+include::../part-1-triangle.adoc[tag=window]
 
-    let (logical_window_size, physical_window_size) = {
-        use winit::dpi::{LogicalSize, PhysicalSize};
+include::../part-1-triangle.adoc[tag=instance]
 
-        let dpi = event_loop.primary_monitor().scale_factor();
-        let logical: LogicalSize<u32> = WINDOW_SIZE.into();
-        let physical: PhysicalSize<u32> = logical.to_physical(dpi);
+include::../part-1-triangle.adoc[tag=device]
 
-        (logical, physical)
-    };
+include::../part-1-triangle.adoc[tag=command_pool]
 
-    use gfx_hal::window::Extent2D;
-    let mut surface_extent = Extent2D {
-        width: physical_window_size.width,
-        height: physical_window_size.height,
-    };
+include::../part-1-triangle.adoc[tag=surface_color_format]
 
-    let window = winit::window::WindowBuilder::new()
-        .with_title(APP_NAME)
-        .with_inner_size(logical_window_size)
-        .build(&event_loop)
-        .expect("TODO");
-
-    let (instance, surface, adapter) = {
-        let instance = backend::Instance::create(APP_NAME, 1).expect("TODO");
-        let surface = unsafe { instance.create_surface(&window).expect("TODO") };
-        let adapter = instance.enumerate_adapters().remove(0);
-
-        (instance, surface, adapter)
-    };
-
-    let (device, mut queue_group) = {
-        use gfx_hal::queue::QueueFamily;
-
-        let queue_family = adapter
-            .queue_families
-            .iter()
-            .find(|family| {
-                surface.supports_queue_family(family) && family.queue_type().supports_graphics()
-            })
-            .expect("TODO");
-
-        let mut gpu = unsafe {
-            use gfx_hal::adapter::PhysicalDevice;
-
-            adapter
-                .physical_device
-                .open(&[(queue_family, &[1.0])], gfx_hal::Features::empty())
-                .expect("TODO")
-        };
-
-        (gpu.device, gpu.queue_groups.pop().expect("TODO"))
-    };
-
-    let mut command_pool = unsafe {
-        use gfx_hal::pool::CommandPoolCreateFlags;
-
-        device
-            .create_command_pool(queue_group.family, CommandPoolCreateFlags::empty())
-            .expect("TODO")
-    };
-
-    let surface_color_format = {
-        use gfx_hal::format::{ChannelType, Format};
-
-        let supported_formats = surface.supported_formats(&adapter.physical_device);
-        supported_formats.map_or(Format::Rgba8Srgb, |formats| {
-            formats
-                .iter()
-                .find(|format| format.base_format().1 == ChannelType::Srgb)
-                .map(|format| *format)
-                .unwrap_or(formats[0])
-        })
-    };
-
-    let render_pass = {
-        use gfx_hal::image::Layout;
-        use gfx_hal::pass::{
-            Attachment, AttachmentLoadOp, AttachmentOps, AttachmentStoreOp, SubpassDesc,
-        };
-
-        let color_attachment = Attachment {
-            format: Some(surface_color_format),
-            samples: 1,
-            ops: AttachmentOps::new(AttachmentLoadOp::Clear, AttachmentStoreOp::Store),
-            stencil_ops: AttachmentOps::DONT_CARE,
-            layouts: Layout::Undefined..Layout::Present,
-        };
-
-        let subpass = SubpassDesc {
-            colors: &[(0, Layout::ColorAttachmentOptimal)],
-            depth_stencil: None,
-            inputs: &[],
-            resolves: &[],
-            preserves: &[],
-        };
-
-        unsafe {
-            device
-                .create_render_pass(&[color_attachment], &[subpass], &[])
-                .expect("TODO")
-        }
-    };
+include::../part-1-triangle.adoc[tag=render_pass]
 
     let pipeline_layout = unsafe {
         use gfx_hal::pso::ShaderStageFlags;
 
+        // TODO: Can we simplify the layout? No vertex buffer so...
         device
             .create_pipeline_layout(&[], &[(ShaderStageFlags::VERTEX, 0..8)])
             .expect("Can't create pipeline layout")
@@ -264,33 +167,7 @@ fn main() {
         submission_complete_fence,
     }));
 
-    let mut should_rebuild_swapchain = true;
-
-    event_loop.run(move |event, _, control_flow| {
-        use winit::event::{Event, WindowEvent};
-        use winit::event_loop::ControlFlow;
-
-        match event {
-            Event::WindowEvent { event, .. } => match event {
-                WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
-                WindowEvent::Resized(dims) => {
-                    surface_extent = Extent2D {
-                        width: dims.width,
-                        height: dims.height,
-                    };
-                    should_rebuild_swapchain = true;
-                }
-                WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                    surface_extent = Extent2D {
-                        width: new_inner_size.width,
-                        height: new_inner_size.height,
-                    };
-                    should_rebuild_swapchain = true;
-                }
-                _ => (),
-            },
-            Event::MainEventsCleared => window.request_redraw(),
-            Event::RedrawRequested(_) => {
+include::../part-1-triangle.adoc[tag=event_loop_start]
                 use gfx_hal::image::Extent;
                 use gfx_hal::window::PresentationSurface;
 
@@ -414,9 +291,6 @@ fn main() {
 
                     should_rebuild_swapchain |= result.is_err();
                 }
-            }
-            _ => (),
-        }
-    });
+include::../part-1-triangle.adoc[tag=event_loop_end]
 }
 ++++

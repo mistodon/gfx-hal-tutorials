@@ -2,7 +2,6 @@
 // TODO: Try to create the window with a LogicalSize directly - without screwing
 //  up swapchain dimensions.
 // TODO: Look at the error types for every `expect` to set a good message.
-
 fn main() {
     use gfx_hal::{device::Device, window::Surface, Instance as _};
 
@@ -117,6 +116,7 @@ fn main() {
     let pipeline_layout = unsafe {
         use gfx_hal::pso::ShaderStageFlags;
 
+        // TODO: Can we simplify the layout? No vertex buffer so...
         device
             .create_pipeline_layout(&[], &[(ShaderStageFlags::VERTEX, 0..8)])
             .expect("Can't create pipeline layout")
@@ -275,6 +275,7 @@ fn main() {
                         height: dims.height,
                     };
                     should_rebuild_swapchain = true;
+
                 }
                 WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
                     surface_extent = Extent2D {
