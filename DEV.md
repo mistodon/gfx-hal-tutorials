@@ -1,7 +1,23 @@
-Reminders for part 03
+General TODOs
 ===
 
-1.  Can the interface for the utility functions be nicer? (e.g. non-generic)
+1.  Cross-platform Cargo.toml
+2.  Show simple Cargo.toml in adocs
+3.  Add comments to each code snippet, but only show them in the document they appear first in (`ifeval::[{current_part} < ${part-this-snippet-appears-in}`)
+4.  Fix all the expect/unwraps
+5.  Search for last minute TODOs
+6.  Start with the shaders in every part!
+
+Topic dependencies
+===
+
+Minimal drawing example (Part 1)
+Push constants (Part 2)
+Vertex buffers (Part 3 - let's draw some teapots)
+Descriptor sets (Part 4 - let's add some simple lighting to the teapots)
+Depth (Part 5 - oops no depth! Let's add a depth buffer for the teapots!)
+Textures (Part 6 - how about a nice floral texture on the teapots?)
+Render-to-texture
 
 Future topics
 ===
@@ -14,8 +30,7 @@ Future topics
 6.  Multiple descriptor sets
 7.  Multiple pipelines
 8.  Multiple textures/texture array
-
-Notes
-===
-- Currently locking to gfx 7b7a6353 because part 00 crashes on 6072aedd.
-    - Didn't get anywhere with debugging, so if this continues, should file a bug.
+9.  Cube maps
+10. Compute pipelines?
+11. OpenGL support
+12. WebGL/WASM support

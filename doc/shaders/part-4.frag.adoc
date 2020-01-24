@@ -1,0 +1,5 @@
+:doctype: inline
+:outfilesuffix:
+++++
+include::../part-4-uniforms.adoc[tag=fragment_shader]
+++++

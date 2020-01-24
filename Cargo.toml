@@ -5,9 +5,11 @@ authors = ["Claire Harris <wishing.engine@gmail.com>"]
 edition = "2018"
 
 [dependencies]
+bincode = "~1.2.1"
 gfx-hal = "=0.4.1"
 glsl-to-spirv = "=0.1.7"
-winit = "=0.20.0"
+serde = { version = "~1.0.104", features = ["derive"] }
+winit = "~0.20.0"
 
 [target.'cfg(target_os = "macos")'.dependencies.backend]
 package = "gfx-backend-metal"

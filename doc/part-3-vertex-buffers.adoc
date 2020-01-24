@@ -1,0 +1,330 @@
+:hidecomments:
+
+[source,rust]
+----
+tag::app_name[]
+    const APP_NAME: &'static str = "Part 3: Vertex buffers";
+end::app_name[]
+----
+
+We are going to draw a teapot.
+
+_TODO_: Always start with the shaders!
+_TODO_: Then pipeline
+_TODO_: Then new shit
+
+Before we can make our vertex buffer, we need some data to put in it. In the repo is a mesh of the Utah teapot, serialized with the `bincode` crate. Really it's just a `Vec` of vertices. To deserialize it, we'll need to define a compatible `Vertex` struct:
+
+[source,rust]
+----
+tag::mesh_struct[]
+#[derive(serde::Deserialize)]
+#[repr(C)]
+struct Vertex {
+    position: [f32; 3],
+    normal: [f32; 3],
+}
+end::mesh_struct[]
+----
+
+(For now, we'll use the normals to add some color to the mesh.)
+
+_TODO_: We also have to change our push constants, so we can get a good 3D look at things.
+
+[source,rust]
+----
+tag::push_constants_struct[]
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+struct PushConstants {
+    transform: [[f32; 4]; 4],
+}
+end::push_constants_struct[]
+----
+
+_TODO_: And our vertex shader, to take advantage of this new data.
+
+[source,glsl]
+----
+// Vertex shader
+tag::vertex_shader[]
+#version 450
+#extension GL_ARB_separate_shader_objects : enable
+
+layout(location = 0) in vec3 position;
+layout(location = 1) in vec3 normal;
+
+layout(push_constant) uniform PushConstants {
+    mat4 transform;
+} push_constants;
+
+layout(location = 0) out vec4 vertex_color;
+
+void main() {
+    vertex_color = vec4(abs(normal), 1.0);
+    gl_Position = push_constants.transform * vec4(position, 1.0);
+}
+end::vertex_shader[]
+----
+
+The fragment shader is unchanged from last time:
+
+[source,glsl]
+----
+// Fragment shader
+tag::fragment_shader[]
+#version 450
+#extension GL_ARB_separate_shader_objects : enable
+
+layout(location = 0) in vec4 vertex_color;
+
+layout(location = 0) out vec4 fragment_color;
+
+void main() {
+    fragment_color = vertex_color;
+}
+end::fragment_shader[]
+----
+
+And use the new files:
+
+[source,rust]
+----
+        // ...
+tag::shaders[]
+        let vertex_shader_module =
+            compile_shader(include_str!("shaders/part-3.vert"), ShaderType::Vertex);
+
+        let fragment_shader_module =
+            compile_shader(include_str!("shaders/part-3.frag"), ShaderType::Fragment);
+end::shaders[]
+        // ...
+----
+
+Before the main event loop, and before we create our `Resources` struct, we can create the vertex buffer. First thing to do is deserialize the mesh data:
+
+[source,rust]
+----
+tag::mesh_deserialize[]
+    let binary_mesh_data = include_bytes!("../../assets/teapot_mesh.bin");
+    let mesh: Vec<Vertex> = bincode::deserialize(binary_mesh_data).expect("TODO");
+end::mesh_deserialize[]
+----
+
+Next, unbound buffer:
+
+[source,rust]
+----
+tag::unbound_vertex_buffer[]
+    let (vertex_buffer_memory, vertex_buffer) = unsafe {
+        use gfx_hal::{adapter::PhysicalDevice, buffer::Usage, memory::Properties, MemoryTypeId};
+
+        // TODO: Ensure aligned to `limits.non_coherent_atom_size`
+        let buffer_len = (mesh.len() * std::mem::size_of::<Vertex>()) as u64;
+        let mut buffer = device
+            .create_buffer(buffer_len, Usage::VERTEX)
+            .expect("TODO");
+end::unbound_vertex_buffer[]
+
+        // ...
+----
+
+[source,rust]
+----
+tag::vertex_buffer_memory[]
+        let req = device.get_buffer_requirements(&buffer);
+
+        let memory_types = adapter.physical_device.memory_properties().memory_types;
+        let memory_type = memory_types
+            .iter()
+            .enumerate()
+            .find(|(id, mem_type)| {
+                let type_supported = req.type_mask & (1_u64 << id) != 0;
+                type_supported && mem_type.properties.contains(Properties::CPU_VISIBLE)
+            })
+            .map(|(id, _ty)| MemoryTypeId(id))
+            .expect("TODO");
+
+        let buffer_memory = device.allocate_memory(memory_type, req.size).expect("TODO");
+        device
+            .bind_buffer_memory(&buffer_memory, 0, &mut buffer)
+            .expect("TODO");
+end::vertex_buffer_memory[]
+----
+
+[source,rust]
+----
+tag::vertex_buffer_upload[]
+        let mapped_memory = device
+            .map_memory(&buffer_memory, 0..buffer_len)
+            .expect("TODO");
+
+        std::ptr::copy_nonoverlapping(
+            mesh.as_ptr() as *const u8,
+            mapped_memory,
+            buffer_len as usize,
+        );
+
+        device
+            .flush_mapped_memory_ranges(vec![(&buffer_memory, 0..buffer_len)])
+            .expect("TODO");
+
+        device.unmap_memory(&buffer_memory);
+end::vertex_buffer_upload[]
+----
+
+[source,rust]
+----
+tag::vertex_buffer_end[]
+
+        (buffer_memory, buffer)
+    };
+end::vertex_buffer_end[]
+----
+
+Now that we've created more resources, we need to make sure we destroy them. So we have to add them to the Resources struct:
+
+[source,rust]
+----
+include::part-1-triangle.adoc[tag=resources_struct_start]
+
+        // Add these two fields:
+tag::resources_struct_vertex_buffer[]
+        vertex_buffer_memory: B::Memory,
+        vertex_buffer: B::Buffer,
+end::resources_struct_vertex_buffer[]
+
+include::part-1-triangle.adoc[tag=resources_struct_end]
+----
+
+And we also have to update the `drop` method of the ResourceHolder struct:
+
+[source,rust]
+----
+include::part-1-triangle.adoc[tag=resource_holder_struct_start]
+
+tag::resource_holder_struct_vertex_buffer_take[]
+                vertex_buffer_memory,
+                vertex_buffer,
+end::resource_holder_struct_vertex_buffer_take[]
+
+include::part-1-triangle.adoc[tag=resource_holder_struct_mid]
+
+tag::resource_holder_struct_vertex_buffer_destroy[]
+                device.free_memory(vertex_buffer_memory);
+                device.destroy_buffer(vertex_buffer);
+end::resource_holder_struct_vertex_buffer_destroy[]
+
+include::part-1-triangle.adoc[tag=resource_holder_struct_end]
+----
+
+Then finally include it in our resources:
+
+[source,rust]
+----
+include::part-1-triangle.adoc[tag=resources_start]
+
+tag::resources_vertex_buffer[]
+        vertex_buffer_memory,
+        vertex_buffer,
+end::resources_vertex_buffer[]
+include::part-1-triangle.adoc[tag=resources_end]
+----
+
+We can't actually use this vertex buffer until we update our pipeline to accept it though, so let's do that:
+
+[source,rust]
+----
+tag::pipeline_desc_vertex[]
+        // Vertex buffer description
+        {
+            use gfx_hal::format::Format;
+            use gfx_hal::pso::{AttributeDesc, Element, VertexBufferDesc, VertexInputRate};
+
+            pipeline_desc.vertex_buffers.push(VertexBufferDesc {
+                binding: 0,
+                stride: std::mem::size_of::<Vertex>() as u32,
+                rate: VertexInputRate::Vertex,
+            });
+end::pipeline_desc_vertex[]
+
+            // ...
+----
+
+[source,rust]
+----
+            // ...
+
+tag::pipeline_desc_attributes[]
+            pipeline_desc.attributes.push(AttributeDesc {
+                location: 0,
+                binding: 0,
+                element: Element {
+                    format: Format::Rgb32Sfloat,
+                    offset: 0,
+                },
+            });
+
+            pipeline_desc.attributes.push(AttributeDesc {
+                location: 1,
+                binding: 0,
+                element: Element {
+                    format: Format::Rgb32Sfloat,
+                    offset: 12,
+                },
+            });
+        }
+end::pipeline_desc_attributes[]
+----
+
+Now for the actually drawing stuff part. First, before we begin the render pass, we need to bind the vertex buffer we want to render from.
+
+[source,rust]
+----
+tag::bind_vertex_buffer[]
+                    command_buffer.bind_vertex_buffers(0, vec![(&res.vertex_buffer, 0)]);
+end::bind_vertex_buffer[]
+----
+
+_TODO_: Factor out push constant serialization to a lambda/function
+_TODO_: Explain the new push constant spinny matrix (only one of them)
+
+[source,rust]
+----
+tag::push_constant_data[]
+                    let t = start_time.elapsed().as_secs_f32();
+                    let cost = t.cos();
+                    let sint = t.sin();
+                    let push_constants = PushConstants {
+                        transform: [
+                            [cost, 0., sint, 0.],
+                            [0., 1., 0., 0.],
+                            [-sint, 0., cost, 0.],
+                            [0., 0., 0.5, 1.],
+                        ],
+                    };
+
+                    use gfx_hal::pso::ShaderStageFlags;
+
+                    let size_in_bytes = std::mem::size_of::<PushConstants>();
+                    let size_in_u32s = size_in_bytes / std::mem::size_of::<u32>();
+                    let start_ptr = &push_constants as *const PushConstants as *const u32;
+                    let bytes = std::slice::from_raw_parts(start_ptr, size_in_u32s);
+                    command_buffer.push_graphics_constants(
+                        &res.pipeline_layout,
+                        ShaderStageFlags::VERTEX,
+                        0,
+                        bytes,
+                    );
+end::push_constant_data[]
+----
+
+Then we have to make sure we draw the full range of vertices in the buffer. For the triangles, we always used `0..3`, but here, we want to use the number of vertices in the mesh:
+
+[source,rust]
+----
+tag::draw_call[]
+                    let vertex_count = mesh.len() as u32;
+                    command_buffer.draw(0..vertex_count, 0..1);
+end::draw_call[]
+----

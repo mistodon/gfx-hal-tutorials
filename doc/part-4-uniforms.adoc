@@ -1,0 +1,322 @@
+:hidecomments:
+
+[source,rust]
+----
+tag::app_name[]
+    const APP_NAME: &'static str = "Part 4: Uniforms";
+end::app_name[]
+----
+
+Let's add some lighting.
+
+[source,glsl]
+----
+// Vertex shader
+tag::vertex_shader[]
+#version 450
+#extension GL_ARB_separate_shader_objects : enable
+
+layout(location = 0) in vec3 position;
+layout(location = 1) in vec3 normal;
+
+layout(push_constant) uniform PushConstants {
+    mat4 transform;
+} push_constants;
+
+layout(location = 0) out vec3 vertex_normal;
+
+void main() {
+    vertex_normal = (push_constants.transform * vec4(normal, 0.0)).xyz;
+    gl_Position = push_constants.transform * vec4(position, 1.0);
+}
+end::vertex_shader[]
+----
+
+The fragment shader is unchanged from last time:
+
+[source,glsl]
+----
+// Fragment shader
+tag::fragment_shader[]
+#version 450
+#extension GL_ARB_separate_shader_objects : enable
+
+layout(location = 0) in vec3 vertex_normal;
+
+layout(location = 0) out vec4 fragment_color;
+
+layout(binding = 0) uniform UniformBlock {
+    vec4 ambient_light;
+    vec4 light_direction;
+    vec4 light_color;
+} uniform_block;
+
+void main() {
+    vec3 to_light = normalize((-uniform_block.light_direction).xyz);
+
+    float light_contribution = clamp(dot(to_light, vertex_normal), 0.0, 1.0);
+
+    vec4 light_color = uniform_block.ambient_light
+        + (uniform_block.light_color * light_contribution);
+
+    fragment_color = vec4(light_color.rgb, 1.0);
+}
+end::fragment_shader[]
+----
+
+And use the new files:
+
+[source,rust]
+----
+        // ...
+tag::shaders[]
+        let vertex_shader_module =
+            compile_shader(include_str!("shaders/part-4.vert"), ShaderType::Vertex);
+
+        let fragment_shader_module =
+            compile_shader(include_str!("shaders/part-4.frag"), ShaderType::Fragment);
+end::shaders[]
+        // ...
+----
+
+Predictably, we need a new struct for this lighting information:
+
+[source,rust]
+----
+tag::uniform_block_struct[]
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+struct UniformBlock {
+    ambient_light: [f32; 4],
+    light_direction: [f32; 4],
+    light_color: [f32; 4],
+}
+end::uniform_block_struct[]
+----
+
+Then, just like push constants, we have to update our pipeline layout to accept our uniforms. We do this via descriptor sets, and so we have to create a descriptor set layout to specify the shape of the data we'll provide:
+
+[source,rust]
+----
+tag::pipeline_layout[]
+    let (pipeline_layout, desc_set_layout) = unsafe {
+        use gfx_hal::pso::{DescriptorSetLayoutBinding, DescriptorType, ShaderStageFlags};
+
+        let desc_set_layout = device
+            .create_descriptor_set_layout(
+                &[DescriptorSetLayoutBinding {
+                    binding: 0,
+                    ty: DescriptorType::UniformBuffer,
+                    count: 1,
+                    stage_flags: ShaderStageFlags::VERTEX,
+                    immutable_samplers: false,
+                }],
+                &[],
+            )
+            .expect("TODO");
+
+        let push_constant_bytes = std::mem::size_of::<PushConstants>() as u32;
+
+        let pipeline_layout = device
+            .create_pipeline_layout(
+                vec![&desc_set_layout],
+                &[(ShaderStageFlags::VERTEX, 0..push_constant_bytes)],
+            )
+            .expect("TODO");
+
+        (pipeline_layout, desc_set_layout)
+    };
+end::pipeline_layout[]
+----
+
+Next we'll need a pool to allocated descriptor sets from:
+
+[source,rust]
+----
+tag::desc_set_pool[]
+    let mut desc_set_pool = unsafe {
+        use gfx_hal::pso::{DescriptorPoolCreateFlags, DescriptorRangeDesc, DescriptorType};
+
+        device
+            .create_descriptor_pool(
+                1,
+                &[DescriptorRangeDesc {
+                    ty: DescriptorType::UniformBuffer,
+                    count: 1,
+                }],
+                DescriptorPoolCreateFlags::empty(),
+            )
+            .expect("TODO")
+    };
+end::desc_set_pool[]
+----
+
+And in fact, let's go ahead and allocate a descriptor set:
+
+[source,rust]
+----
+tag::desc_set[]
+    let desc_set = unsafe {
+        use gfx_hal::pso::DescriptorPool;
+
+        desc_set_pool.allocate_set(&desc_set_layout).expect("TODO")
+    };
+end::desc_set[]
+----
+
+And a uniform buffer, very similar to the vertex buffer. In fact, you could factor this out to a single function - exercise left to the reader:
+
+[source,rust]
+----
+tag::uniform_buffer[]
+    let (uniform_buffer_memory, uniform_buffer) = unsafe {
+        use gfx_hal::{adapter::PhysicalDevice, buffer::Usage, memory::Properties, MemoryTypeId};
+
+        // TODO: Ensure aligned to `limits.non_coherent_atom_size`
+        let buffer_len = std::mem::size_of::<UniformBlock>() as u64;
+        let mut buffer = device
+            .create_buffer(buffer_len, Usage::UNIFORM)
+            .expect("TODO");
+
+        let req = device.get_buffer_requirements(&buffer);
+
+        let memory_types = adapter.physical_device.memory_properties().memory_types;
+        let memory_type = memory_types
+            .iter()
+            .enumerate()
+            .find(|(id, mem_type)| {
+                let type_supported = req.type_mask & (1_u64 << id) != 0;
+                type_supported && mem_type.properties.contains(Properties::CPU_VISIBLE)
+            })
+            .map(|(id, _ty)| MemoryTypeId(id))
+            .expect("TODO");
+
+        let buffer_memory = device.allocate_memory(memory_type, req.size).expect("TODO");
+        device
+            .bind_buffer_memory(&buffer_memory, 0, &mut buffer)
+            .expect("TODO");
+
+        (buffer_memory, buffer)
+    };
+end::uniform_buffer[]
+----
+
+And write the data: _TODO_: in main loop?
+
+[source,rust]
+----
+tag::uniform_buffer_write[]
+                // Write uniform data to descriptor set
+                unsafe {
+                    let uniform_block = UniformBlock {
+                        ambient_light: [0.2, 0.2, 0.2, 1.0],
+                        light_direction: [1.0, 1.0, 1.0, 1.0],
+                        light_color: [0.5, 0.5, 0.75, 1.0],
+                    };
+
+                    let buffer_len = std::mem::size_of::<UniformBlock>() as u64;
+
+                    let mapped_memory = res
+                        .device
+                        .map_memory(&res.uniform_buffer_memory, 0..buffer_len)
+                        .expect("TODO");
+
+                    std::ptr::copy_nonoverlapping(
+                        &uniform_block as *const UniformBlock as *const u8,
+                        mapped_memory,
+                        buffer_len as usize,
+                    );
+
+                    res.device
+                        .flush_mapped_memory_ranges(vec![(
+                            &res.uniform_buffer_memory,
+                            0..buffer_len,
+                        )])
+                        .expect("TODO");
+
+                    res.device.unmap_memory(&res.uniform_buffer_memory);
+                }
+end::uniform_buffer_write[]
+----
+
+Last bit of prep is to tell the GPU to fill the descriptor set with the contents of this particular uniform buffer:
+
+[source,rust]
+----
+tag::desc_set_write[]
+    unsafe {
+        use gfx_hal::pso::{Descriptor, DescriptorSetWrite};
+
+        device.write_descriptor_sets(vec![DescriptorSetWrite {
+            set: &desc_set,
+            binding: 0,
+            array_offset: 0,
+            descriptors: Some(Descriptor::Buffer(&uniform_buffer, None..None)),
+        }]);
+    }
+end::desc_set_write[]
+----
+
+Actually, that's a lie, we also have to store and drop the descriptor set pool, layout, and the uniform buffer and memory:
+
+
+[source,rust]
+----
+include::part-1-triangle.adoc[tag=resources_struct_start]
+                // ...
+tag::resources_struct_uniforms[]
+        uniform_buffer_memory: B::Memory,
+        uniform_buffer: B::Buffer,
+        desc_set_pool: B::DescriptorPool,
+        desc_set_layout: B::DescriptorSetLayout,
+end::resources_struct_uniforms[]
+include::part-1-triangle.adoc[tag=resources_struct_end]
+----
+
+[source,rust]
+----
+include::part-1-triangle.adoc[tag=resource_holder_struct_start]
+                // ...
+tag::resource_holder_struct_uniforms_take[]
+                desc_set_layout,
+                desc_set_pool,
+                uniform_buffer_memory,
+                uniform_buffer,
+end::resource_holder_struct_uniforms_take[]
+include::part-1-triangle.adoc[tag=resource_holder_struct_mid]
+                // ...
+tag::resource_holder_struct_uniforms_destroy[]
+                device.destroy_buffer(uniform_buffer);
+                device.free_memory(uniform_buffer_memory);
+                device.destroy_descriptor_pool(desc_set_pool);
+                device.destroy_descriptor_set_layout(desc_set_layout);
+end::resource_holder_struct_uniforms_destroy[]
+include::part-1-triangle.adoc[tag=resource_holder_struct_end]
+----
+
+[source,rust]
+----
+include::part-1-triangle.adoc[tag=resource_start]
+                // ...
+tag::resources_uniforms[]
+        desc_set_layout,
+        desc_set_pool,
+        uniform_buffer_memory,
+        uniform_buffer,
+end::resources_uniforms[]
+include::part-1-triangle.adoc[tag=resource_end]
+----
+
+Now finally to render something:
+
+[source,rust]
+----
+tag::bind_desc_set[]
+                    command_buffer.bind_graphics_descriptor_sets(
+                        &res.pipeline_layout,
+                        0,
+                        vec![&desc_set],
+                        &[],
+                    );
+end::bind_desc_set[]
+----

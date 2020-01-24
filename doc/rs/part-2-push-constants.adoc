@@ -2,8 +2,10 @@
 :outfilesuffix: .rs
 
 ++++
+include::../part-2-push-constants.adoc[tag=push_constants_struct]
+
 include::../part-1-triangle.adoc[tag=main_start]
-include::../part-1-triangle.adoc[tag=app_name]
+include::../part-2-push-constants.adoc[tag=app_name]
 include::../part-1-triangle.adoc[tag=main_post_name]
 
 include::../part-1-triangle.adoc[tag=window_size]
@@ -20,11 +22,11 @@ include::../part-1-triangle.adoc[tag=surface_color_format]
 
 include::../part-1-triangle.adoc[tag=render_pass]
 
-include::../part-1-triangle.adoc[tag=pipeline_layout]
+include::../part-2-push-constants.adoc[tag=pipeline_layout]
 
 include::../part-1-triangle.adoc[tag=pipeline_start]
 include::../part-1-triangle.adoc[tag=pipeline_compile_shader]
-include::../part-1-triangle.adoc[tag=shaders]
+include::../part-2-push-constants.adoc[tag=shaders]
 
 include::../part-1-triangle.adoc[tag=pipeline_shader_entries]
 
@@ -47,6 +49,8 @@ include::../part-1-triangle.adoc[tag=resource_holder_struct_end]
 include::../part-1-triangle.adoc[tag=resources_start]
 include::../part-1-triangle.adoc[tag=resources_end]
 
+include::../part-2-push-constants.adoc[tag=start_time]
+
 include::../part-1-triangle.adoc[tag=event_loop_start]
 include::../part-1-triangle.adoc[tag=rendering_prep]
 
@@ -59,7 +63,11 @@ include::../part-1-triangle.adoc[tag=fences]
 include::../part-1-triangle.adoc[tag=commands_start]
 
 include::../part-1-triangle.adoc[tag=begin_render_pass]
-include::../part-1-triangle.adoc[tag=draw_call]
+
+include::../part-2-push-constants.adoc[tag=push_constant_data]
+
+include::../part-2-push-constants.adoc[tag=draw_call]
+
 include::../part-1-triangle.adoc[tag=commands_end]
 
 include::../part-1-triangle.adoc[tag=submit]

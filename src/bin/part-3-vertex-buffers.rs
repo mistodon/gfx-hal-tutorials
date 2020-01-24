@@ -1,40 +1,28 @@
-:hidecomments:
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+struct PushConstants {
+    transform: [[f32; 4]; 4],
+}
 
-First, let's begin our main function and create an event loop:
+#[derive(serde::Deserialize)]
+#[repr(C)]
+struct Vertex {
+    position: [f32; 3],
+    normal: [f32; 3],
+}
 
-[source,rust]
-----
-tag::main_start[]
-ifndef::hidecomments[]
 // TODO: Reorder declarations so that they're as close to their usage sites as they can be
 // TODO: Try to create the window with a LogicalSize directly - without screwing
 //  up swapchain dimensions.
 // TODO: Look at the error types for every `expect` to set a good message.
-endif::hidecomments[]
 fn main() {
     use gfx_hal::{device::Device, window::Surface, Instance as _};
 
-end::main_start[]
-tag::app_name[]
-    const APP_NAME: &'static str = "Part 1: Drawing a triangle";
-end::app_name[]
-tag::main_post_name[]
+    const APP_NAME: &'static str = "Part 3: Vertex buffers";
     const WINDOW_SIZE: [u32; 2] = [512, 512];
 
     let event_loop = winit::event_loop::EventLoop::new();
-end::main_post_name[]
 
-    // ...
-}
-----
-
-You'll notice we also imported a few traits from the `gfx_hal` crate. In general, throughout this tutorial I'll try to keep imports close to where they are used. The three traits above are used in many places, however.
-
-We defined a constant for the `WINDOW_SIZE` above, but before we can actually create a window, there's some subtleties to address when it comes to resolution. Blah blah blah, so we need both a _logical size_ and a _physical size_.
-
-[source,rust]
-----
-tag::window_size[]
     let (logical_window_size, physical_window_size) = {
         use winit::dpi::{LogicalSize, PhysicalSize};
 
@@ -44,86 +32,19 @@ tag::window_size[]
 
         (logical, physical)
     };
-end::window_size[]
-----
 
-The _physical size_ is what we're concerned with when it comes to rendering, as we want our rendering surface to represent every pixel. So let's define that now:
-
-[source,rust]
-----
-tag::surface_extent[]
     use gfx_hal::window::Extent2D;
     let mut surface_extent = Extent2D {
         width: physical_window_size.width,
         height: physical_window_size.height,
     };
-end::surface_extent[]
-----
 
-Make the window:
-
-[source,rust]
-----
-tag::window[]
     let window = winit::window::WindowBuilder::new()
         .with_title(APP_NAME)
         .with_inner_size(logical_window_size)
         .build(&event_loop)
         .expect("TODO");
-end::window[]
-----
 
-Before we do any graphics, let's jump ahead and set up our main event loop:
-
-[source,rust]
-----
-tag::event_loop_start[]
-    let mut should_rebuild_swapchain = true;
-
-    event_loop.run(move |event, _, control_flow| {
-        use winit::event::{Event, WindowEvent};
-        use winit::event_loop::ControlFlow;
-
-        match event {
-            Event::WindowEvent { event, .. } => match event {
-                WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
-                WindowEvent::Resized(dims) => {
-                    surface_extent = Extent2D {
-                        width: dims.width,
-                        height: dims.height,
-                    };
-                    should_rebuild_swapchain = true;
-                }
-                WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                    surface_extent = Extent2D {
-                        width: new_inner_size.width,
-                        height: new_inner_size.height,
-                    };
-                    should_rebuild_swapchain = true;
-                }
-                _ => (),
-            },
-            Event::MainEventsCleared => window.request_redraw(),
-            Event::RedrawRequested(_) => {
-end::event_loop_start[]
-                // ...
-tag::event_loop_end[]
-            }
-            _ => (),
-        }
-    });
-end::event_loop_end[]
-----
-
-Here's what all that does: responding to close, resize, and driving draw loop.
-
-Now you should be able to run it and see an empty window. I hope you enjoy that, because it's all you're going to see until the very last moment of this tutorial. It's a good idea to run the program after each change though, just to make sure there are no crashes.
-
-So now we have a window. If we want to be able to draw a triangle, we're going to have to talk to the GPU.
-
-[source,rust]
-----
-tag::instance[]
     let (instance, surface, adapter) = {
         let instance = backend::Instance::create(APP_NAME, 1).expect("TODO");
         let surface = unsafe { instance.create_surface(&window).expect("TODO") };
@@ -131,14 +52,7 @@ tag::instance[]
 
         (instance, surface, adapter)
     };
-end::instance[]
-----
 
-_TODO_: Talk about panics due to un-cleaned-up resources, and that we'll fix it later.
-
-[source,rust]
-----
-tag::device[]
     let (device, mut queue_group) = {
         use gfx_hal::queue::QueueFamily;
 
@@ -161,12 +75,7 @@ tag::device[]
 
         (gpu.device, gpu.queue_groups.pop().expect("TODO"))
     };
-end::device[]
-----
 
-[source,rust]
-----
-tag::surface_color_format[]
     let surface_color_format = {
         use gfx_hal::format::{ChannelType, Format};
 
@@ -179,12 +88,7 @@ tag::surface_color_format[]
                 .unwrap_or(formats[0])
         })
     };
-end::surface_color_format[]
-----
 
-[source,rust]
-----
-tag::render_pass[]
     let render_pass = {
         use gfx_hal::image::Layout;
         use gfx_hal::pass::{
@@ -213,57 +117,16 @@ tag::render_pass[]
                 .expect("TODO")
         }
     };
-end::render_pass[]
-----
 
-Next, we're going to define our rendering pipeline. This starts with the pipeline layout, which is very simple for our case:
+    let pipeline_layout = unsafe {
+        use gfx_hal::pso::ShaderStageFlags;
 
-[source,rust]
-----
-tag::pipeline_layout[]
-    let pipeline_layout = unsafe { device.create_pipeline_layout(&[], &[]).expect("TODO") };
-end::pipeline_layout[]
-----
+        let push_constant_bytes = std::mem::size_of::<PushConstants>() as u32;
+        device
+            .create_pipeline_layout(&[], &[(ShaderStageFlags::VERTEX, 0..push_constant_bytes)])
+            .expect("TODO")
+    };
 
-Before we get into the pipeline itself, we'll have to write some shaders for it to use:
-
-[source,glsl]
-----
-// Vertex shader
-tag::vertex_shader[]
-#version 450
-#extension GL_ARB_separate_shader_objects : enable
-
-vec2 positions[3] = vec2[](
-    vec2(0.0, -0.5),
-    vec2(0.5, 0.5),
-    vec2(-0.5, 0.5)
-);
-
-void main() {
-    gl_Position = vec4(positions[gl_VertexIndex], 0.0, 1.0);
-}
-end::vertex_shader[]
-----
-
-[source,glsl]
-----
-// Fragment shader
-tag::fragment_shader[]
-#version 450
-#extension GL_ARB_separate_shader_objects : enable
-
-layout(location = 0) out vec4 fragment_color;
-
-void main() {
-    fragment_color = vec4(0.5, 0.5, 1.0, 1.0);
-}
-end::fragment_shader[]
-----
-
-[source,rust]
-----
-tag::pipeline_start[]
     let pipeline = {
         use gfx_hal::pass::Subpass;
         use gfx_hal::pso::{
@@ -272,16 +135,6 @@ tag::pipeline_start[]
         };
         use glsl_to_spirv::ShaderType;
 
-end::pipeline_start[]
-        // ...
-tag::pipeline_end[]
-    };
-end::pipeline_end[]
-----
-
-[source,rust]
-----
-tag::pipeline_compile_shader[]
         let compile_shader = |glsl, shader_type| {
             use std::io::{Cursor, Read};
 
@@ -292,19 +145,12 @@ tag::pipeline_compile_shader[]
             unsafe { device.create_shader_module(&spirv).expect("TODO") }
         };
 
-end::pipeline_compile_shader[]
-tag::shaders[]
         let vertex_shader_module =
-            compile_shader(include_str!("shaders/part-1.vert"), ShaderType::Vertex);
+            compile_shader(include_str!("shaders/part-3.vert"), ShaderType::Vertex);
 
         let fragment_shader_module =
-            compile_shader(include_str!("shaders/part-1.frag"), ShaderType::Fragment);
-end::shaders[]
-----
+            compile_shader(include_str!("shaders/part-3.frag"), ShaderType::Fragment);
 
-[source,rust]
-----
-tag::pipeline_shader_entries[]
         let (vs_entry, fs_entry) = (
             EntryPoint {
                 entry: "main",
@@ -325,12 +171,7 @@ tag::pipeline_shader_entries[]
             geometry: None,
             fragment: Some(fs_entry),
         };
-end::pipeline_shader_entries[]
-----
 
-[source,rust]
-----
-tag::pipeline_desc[]
         let mut pipeline_desc = GraphicsPipelineDesc::new(
             shader_entries,
             Primitive::TriangleList,
@@ -346,12 +187,37 @@ tag::pipeline_desc[]
             mask: ColorMask::ALL,
             blend: Some(BlendState::ALPHA),
         });
-end::pipeline_desc[]
-----
 
-[source,rust]
-----
-tag::pipeline_create[]
+        // Vertex buffer description
+        {
+            use gfx_hal::format::Format;
+            use gfx_hal::pso::{AttributeDesc, Element, VertexBufferDesc, VertexInputRate};
+
+            pipeline_desc.vertex_buffers.push(VertexBufferDesc {
+                binding: 0,
+                stride: std::mem::size_of::<Vertex>() as u32,
+                rate: VertexInputRate::Vertex,
+            });
+
+            pipeline_desc.attributes.push(AttributeDesc {
+                location: 0,
+                binding: 0,
+                element: Element {
+                    format: Format::Rgb32Sfloat,
+                    offset: 0,
+                },
+            });
+
+            pipeline_desc.attributes.push(AttributeDesc {
+                location: 1,
+                binding: 0,
+                element: Element {
+                    format: Format::Rgb32Sfloat,
+                    offset: 12,
+                },
+            });
+        }
+
         unsafe {
             let pipeline = device
                 .create_graphics_pipeline(&pipeline_desc, None)
@@ -362,12 +228,8 @@ tag::pipeline_create[]
 
             pipeline
         }
-end::pipeline_create[]
-----
+    };
 
-[source,rust]
-----
-tag::command_pool[]
     let (command_pool, mut command_buffer) = unsafe {
         use gfx_hal::command::Level;
         use gfx_hal::pool::{CommandPool, CommandPoolCreateFlags};
@@ -379,22 +241,59 @@ tag::command_pool[]
 
         (command_pool, command_buffer)
     };
-end::command_pool[]
-----
 
-[source,rust]
-----
-tag::concurrency_primitives[]
     let submission_complete_semaphore = device.create_semaphore().expect("TODO");
     let submission_complete_fence = device.create_fence(true).expect("TODO");
-end::concurrency_primitives[]
-----
 
-We have now created everything that we need to start rendering. But here's the part that sucks: we have to clean up after ourselves. Winit doesn't make this easy. Winit will drop them, but we don't want them to drop - we want to delete them. So first of all we'll group everything we need to destroy into one struct. (Rule of thumb: if you called a function called `create_<something>`, then it goes here.)
+    let binary_mesh_data = include_bytes!("../../assets/teapot_mesh.bin");
+    let mesh: Vec<Vertex> = bincode::deserialize(binary_mesh_data).expect("TODO");
 
-[source,rust]
-----
-tag::resources_struct_start[]
+    let (vertex_buffer_memory, vertex_buffer) = unsafe {
+        use gfx_hal::{adapter::PhysicalDevice, buffer::Usage, memory::Properties, MemoryTypeId};
+
+        // TODO: Ensure aligned to `limits.non_coherent_atom_size`
+        let buffer_len = (mesh.len() * std::mem::size_of::<Vertex>()) as u64;
+        let mut buffer = device
+            .create_buffer(buffer_len, Usage::VERTEX)
+            .expect("TODO");
+
+        let req = device.get_buffer_requirements(&buffer);
+
+        let memory_types = adapter.physical_device.memory_properties().memory_types;
+        let memory_type = memory_types
+            .iter()
+            .enumerate()
+            .find(|(id, mem_type)| {
+                let type_supported = req.type_mask & (1_u64 << id) != 0;
+                type_supported && mem_type.properties.contains(Properties::CPU_VISIBLE)
+            })
+            .map(|(id, _ty)| MemoryTypeId(id))
+            .expect("TODO");
+
+        let buffer_memory = device.allocate_memory(memory_type, req.size).expect("TODO");
+        device
+            .bind_buffer_memory(&buffer_memory, 0, &mut buffer)
+            .expect("TODO");
+
+        let mapped_memory = device
+            .map_memory(&buffer_memory, 0..buffer_len)
+            .expect("TODO");
+
+        std::ptr::copy_nonoverlapping(
+            mesh.as_ptr() as *const u8,
+            mapped_memory,
+            buffer_len as usize,
+        );
+
+        device
+            .flush_mapped_memory_ranges(vec![(&buffer_memory, 0..buffer_len)])
+            .expect("TODO");
+
+        device.unmap_memory(&buffer_memory);
+
+        (buffer_memory, buffer)
+    };
+
     // TODO: Order sensibly
     struct Resources<B: gfx_hal::Backend> {
         instance: B::Instance,
@@ -406,21 +305,10 @@ tag::resources_struct_start[]
         command_pool: B::CommandPool,
         submission_complete_semaphore: B::Semaphore,
         submission_complete_fence: B::Fence,
-end::resources_struct_start[]
-tag::resources_struct_end[]
+        vertex_buffer_memory: B::Memory,
+        vertex_buffer: B::Buffer,
     }
-end::resources_struct_end[]
-----
 
-Now unfortunately, we can't implement `Drop` for this struct directly. This is because the signature of `drop` takes a `&mut self` parameter, while the signatures of the `destroy_<something>` functions take a `self` parameter (by move).
-
-So we need a way to move our resources _out_ of a `&mut` reference. One way to do this is to put our resources in an `Option`, and use the `take` method to pull out the contents:
-
-_TODO_: Add a footnote about ManuallyDrop
-
-[source,rust]
-----
-tag::resource_holder_struct_start[]
     struct ResourceHolder<B: gfx_hal::Backend>(Option<Resources<B>>);
 
     impl<B: gfx_hal::Backend> Drop for ResourceHolder<B> {
@@ -435,14 +323,14 @@ tag::resource_holder_struct_start[]
                 pipeline,
                 submission_complete_semaphore,
                 submission_complete_fence,
-end::resource_holder_struct_start[]
-tag::resource_holder_struct_mid[]
+                vertex_buffer_memory,
+                vertex_buffer,
             } = self.0.take().unwrap();
 
             // Clean up resources
             unsafe {
-end::resource_holder_struct_mid[]
-tag::resource_holder_struct_end[]
+                device.free_memory(vertex_buffer_memory);
+                device.destroy_buffer(vertex_buffer);
                 device.destroy_fence(submission_complete_fence);
                 device.destroy_semaphore(submission_complete_semaphore);
                 device.destroy_graphics_pipeline(pipeline);
@@ -453,14 +341,7 @@ tag::resource_holder_struct_end[]
             }
         }
     }
-end::resource_holder_struct_end[]
-----
 
-Now we can instantiate this struct, which will be moved into the event loop and dropped when the program exits, calling all of our destructors.
-
-[source,rust]
-----
-tag::resources_start[]
     let mut resource_holder: ResourceHolder<backend::Backend> = ResourceHolder(Some(Resources {
         instance,
         surface,
@@ -471,20 +352,39 @@ tag::resources_start[]
         pipeline,
         submission_complete_semaphore,
         submission_complete_fence,
-end::resources_start[]
-tag::resources_end[]
+        vertex_buffer_memory,
+        vertex_buffer,
     }));
-end::resources_end[]
-----
 
-Our app setup is finally done! Now for our per-frame rendering code.
+    let start_time = std::time::Instant::now();
 
-First, let's return to our `RedrawRequested` event and prepare a few things:
+    let mut should_rebuild_swapchain = true;
 
-[source,rust]
-----
+    event_loop.run(move |event, _, control_flow| {
+        use winit::event::{Event, WindowEvent};
+        use winit::event_loop::ControlFlow;
+
+        match event {
+            Event::WindowEvent { event, .. } => match event {
+                WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
+                WindowEvent::Resized(dims) => {
+                    surface_extent = Extent2D {
+                        width: dims.width,
+                        height: dims.height,
+                    };
+                    should_rebuild_swapchain = true;
+                }
+                WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
+                    surface_extent = Extent2D {
+                        width: new_inner_size.width,
+                        height: new_inner_size.height,
+                    };
+                    should_rebuild_swapchain = true;
+                }
+                _ => (),
+            },
+            Event::MainEventsCleared => window.request_redraw(),
             Event::RedrawRequested(_) => {
-tag::rendering_prep[]
                 use gfx_hal::window::PresentationSurface;
 
                 let res = resource_holder.0.as_mut().unwrap();
@@ -502,15 +402,7 @@ tag::rendering_prep[]
                         depth: 0.0..1.0,
                     }
                 };
-end::rendering_prep[]
-            }
-----
 
-Next up, we're going to finally configure the swapchain. Remember the `should_rebuild_swapchain` variable we declared? I hope you initialized it to `true`, because this is how we make sure it's ready for the first frame:
-
-[source,rust]
-----
-tag::rebuild_swapchain[]
                 if should_rebuild_swapchain {
                     use gfx_hal::window::SwapchainConfig;
 
@@ -533,12 +425,7 @@ tag::rebuild_swapchain[]
                     viewport.rect.h = surface_extent.height as _;
                     should_rebuild_swapchain = false;
                 }
-end::rebuild_swapchain[]
-----
 
-[source,rust]
-----
-tag::framebuffer[]
                 let surface_image = unsafe {
                     match res.surface.acquire_image(!0) {
                         Ok((image, _)) => image,
@@ -566,12 +453,7 @@ tag::framebuffer[]
                         )
                         .unwrap()
                 };
-end::framebuffer[]
-----
 
-[source,rust]
-----
-tag::fences[]
                 unsafe {
                     use gfx_hal::pool::CommandPool;
 
@@ -584,12 +466,7 @@ tag::fences[]
                         .expect("TODO");
                     res.command_pool.reset(false);
                 }
-end::fences[]
-----
 
-[source,rust]
-----
-tag::commands_start[]
                 unsafe {
                     use gfx_hal::command::{
                         ClearColor, ClearValue, CommandBuffer, CommandBufferFlags, SubpassContents,
@@ -600,9 +477,9 @@ tag::commands_start[]
                     command_buffer.set_viewports(0, &[viewport.clone()]);
                     command_buffer.set_scissors(0, &[viewport.rect]);
                     command_buffer.bind_graphics_pipeline(&res.pipeline);
-end::commands_start[]
 
-tag::begin_render_pass[]
+                    command_buffer.bind_vertex_buffers(0, vec![(&res.vertex_buffer, 0)]);
+
                     command_buffer.begin_render_pass(
                         &res.render_pass,
                         &framebuffer,
@@ -614,20 +491,39 @@ tag::begin_render_pass[]
                         }],
                         SubpassContents::Inline,
                     );
-end::begin_render_pass[]
-tag::draw_call[]
-                    command_buffer.draw(0..3, 0..1);
-end::draw_call[]
-tag::commands_end[]
+
+                    let t = start_time.elapsed().as_secs_f32();
+                    let cost = t.cos();
+                    let sint = t.sin();
+                    let push_constants = PushConstants {
+                        transform: [
+                            [cost, 0., sint, 0.],
+                            [0., 1., 0., 0.],
+                            [-sint, 0., cost, 0.],
+                            [0., 0., 0.5, 1.],
+                        ],
+                    };
+
+                    use gfx_hal::pso::ShaderStageFlags;
+
+                    let size_in_bytes = std::mem::size_of::<PushConstants>();
+                    let size_in_u32s = size_in_bytes / std::mem::size_of::<u32>();
+                    let start_ptr = &push_constants as *const PushConstants as *const u32;
+                    let bytes = std::slice::from_raw_parts(start_ptr, size_in_u32s);
+                    command_buffer.push_graphics_constants(
+                        &res.pipeline_layout,
+                        ShaderStageFlags::VERTEX,
+                        0,
+                        bytes,
+                    );
+
+                    let vertex_count = mesh.len() as u32;
+                    command_buffer.draw(0..vertex_count, 0..1);
+
                     command_buffer.end_render_pass();
                     command_buffer.finish();
                 }
-end::commands_end[]
-----
 
-[source,rust]
-----
-tag::submit[]
                 unsafe {
                     use gfx_hal::queue::{CommandQueue, Submission};
 
@@ -648,5 +544,8 @@ tag::submit[]
 
                     should_rebuild_swapchain |= result.is_err();
                 }
-end::submit[]
-----
+            }
+            _ => (),
+        }
+    });
+}

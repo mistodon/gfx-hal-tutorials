@@ -1,0 +1,6 @@
+:doctype: inline
+:outfilesuffix:
+++++
+include::../part-2-push-constants.adoc[tag=vertex_shader]
+++++
+

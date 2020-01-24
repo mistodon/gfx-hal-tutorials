@@ -6,7 +6,7 @@ fn main() {
     use gfx_hal::{device::Device, window::Surface, Instance as _};
 
     const APP_NAME: &'static str = "Part 1: Drawing a triangle";
-    const WINDOW_SIZE: [u32; 2] = [256, 256];
+    const WINDOW_SIZE: [u32; 2] = [512, 512];
 
     let event_loop = winit::event_loop::EventLoop::new();
 
