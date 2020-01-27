@@ -4,17 +4,6 @@ matrix:
   include:
     - rust: stable
       before_script:
-        - rustup component add rustfmt-preview
-        - rustup component add clippy-preview
-      script:
-        - |
-          cargo fmt -- --check &&
-          cargo build &&
-          cargo clippy -- -D clippy
-
-    - rust: stable
-      env: GFX_MASTER=true
-      script:
-        - (cd ci/gfx-master && cargo check)
-  allow_failures:
-    - env: GFX_MASTER=true
+        - rustup component add rustfmt
+        - rustup component add clippy
+      script: ./run_tests
