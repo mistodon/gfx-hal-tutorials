@@ -16,8 +16,8 @@ void main() {
 
     float light_contribution = clamp(dot(to_light, vertex_normal), 0.0, 1.0);
 
-    vec4 light_color = uniform_block.ambient_light
+    vec4 lighting = uniform_block.ambient_light
         + (uniform_block.light_color * light_contribution);
 
-    fragment_color = vec4(light_color.rgb, 1.0);
+    fragment_color = vec4(lighting.rgb, 1.0);
 }

@@ -66,8 +66,8 @@ tag::vertex_shader[]
 
 vec2 positions[3] = vec2[](
     vec2(0.0, -0.5),
-    vec2(0.5, 0.5),
-    vec2(-0.5, 0.5)
+    vec2(-0.5, 0.5),
+    vec2(0.5, 0.5)
 );
 
 layout(push_constant) uniform PushConstants {
@@ -133,7 +133,7 @@ tag::push_constant_data[]
                     let anim = start_time.elapsed().as_secs_f32().sin() * 0.5 + 0.5;
                     let small = [0.33, 0.33];
 
-                    let triangles = &[
+                    let things_to_draw = &[
                         PushConstants {
                             color: [1.0, 0.0, 0.0, 1.0],
                             pos: [-0.5, -0.5],
@@ -173,12 +173,12 @@ Then we'll draw a triangle for each one:
 [source,rust]
 ----
 tag::draw_call[]
-                    for push_constants in triangles {
+                    for thing in things_to_draw {
                         use gfx_hal::pso::ShaderStageFlags;
 
                         let size_in_bytes = std::mem::size_of::<PushConstants>();
                         let size_in_u32s = size_in_bytes / std::mem::size_of::<u32>();
-                        let start_ptr = push_constants as *const PushConstants as *const u32;
+                        let start_ptr = thing as *const PushConstants as *const u32;
                         let bytes = std::slice::from_raw_parts(start_ptr, size_in_u32s);
                         command_buffer.push_graphics_constants(
                             &res.pipeline_layout,

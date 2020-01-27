@@ -125,7 +125,7 @@ fn main() {
     let pipeline = {
         use gfx_hal::pass::Subpass;
         use gfx_hal::pso::{
-            self, BlendState, ColorBlendDesc, ColorMask, EntryPoint, GraphicsPipelineDesc,
+            self, BlendState, ColorBlendDesc, ColorMask, EntryPoint, Face, GraphicsPipelineDesc,
             GraphicsShaderSet, Primitive, Rasterizer, Specialization,
         };
         use glsl_to_spirv::ShaderType;
@@ -170,7 +170,10 @@ fn main() {
         let mut pipeline_desc = GraphicsPipelineDesc::new(
             shader_entries,
             Primitive::TriangleList,
-            Rasterizer::FILL,
+            Rasterizer {
+                cull_face: Face::BACK,
+                ..Rasterizer::FILL
+            },
             &pipeline_layout,
             Subpass {
                 index: 0,
@@ -401,7 +404,7 @@ fn main() {
                     let anim = start_time.elapsed().as_secs_f32().sin() * 0.5 + 0.5;
                     let small = [0.33, 0.33];
 
-                    let triangles = &[
+                    let things_to_draw = &[
                         PushConstants {
                             color: [1.0, 0.0, 0.0, 1.0],
                             pos: [-0.5, -0.5],
@@ -434,12 +437,12 @@ fn main() {
                         },
                     ];
 
-                    for push_constants in triangles {
+                    for thing in things_to_draw {
                         use gfx_hal::pso::ShaderStageFlags;
 
                         let size_in_bytes = std::mem::size_of::<PushConstants>();
                         let size_in_u32s = size_in_bytes / std::mem::size_of::<u32>();
-                        let start_ptr = push_constants as *const PushConstants as *const u32;
+                        let start_ptr = thing as *const PushConstants as *const u32;
                         let bytes = std::slice::from_raw_parts(start_ptr, size_in_u32s);
                         command_buffer.push_graphics_constants(
                             &res.pipeline_layout,

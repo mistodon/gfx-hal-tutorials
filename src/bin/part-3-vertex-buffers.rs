@@ -130,7 +130,7 @@ fn main() {
     let pipeline = {
         use gfx_hal::pass::Subpass;
         use gfx_hal::pso::{
-            self, BlendState, ColorBlendDesc, ColorMask, EntryPoint, GraphicsPipelineDesc,
+            self, BlendState, ColorBlendDesc, ColorMask, EntryPoint, Face, GraphicsPipelineDesc,
             GraphicsShaderSet, Primitive, Rasterizer, Specialization,
         };
         use glsl_to_spirv::ShaderType;
@@ -175,7 +175,10 @@ fn main() {
         let mut pipeline_desc = GraphicsPipelineDesc::new(
             shader_entries,
             Primitive::TriangleList,
-            Rasterizer::FILL,
+            Rasterizer {
+                cull_face: Face::BACK,
+                ..Rasterizer::FILL
+            },
             &pipeline_layout,
             Subpass {
                 index: 0,
@@ -492,33 +495,46 @@ fn main() {
                         SubpassContents::Inline,
                     );
 
-                    let t = start_time.elapsed().as_secs_f32();
-                    let cost = t.cos();
-                    let sint = t.sin();
-                    let push_constants = PushConstants {
-                        transform: [
-                            [cost, 0., sint, 0.],
-                            [0., 1., 0., 0.],
-                            [-sint, 0., cost, 0.],
-                            [0., 0., 0.5, 1.],
-                        ],
-                    };
+                    fn make_transform(
+                        translate: [f32; 3],
+                        angle: f32,
+                        scale: f32,
+                    ) -> [[f32; 4]; 4] {
+                        let c = angle.cos() * scale;
+                        let s = angle.sin() * scale;
+                        let [dx, dy, dz] = translate;
 
-                    use gfx_hal::pso::ShaderStageFlags;
+                        [
+                            [c, 0., s, 0.],
+                            [0., scale, 0., 0.],
+                            [-s, 0., c, 0.],
+                            [dx, dy, dz, 1.],
+                        ]
+                    }
 
-                    let size_in_bytes = std::mem::size_of::<PushConstants>();
-                    let size_in_u32s = size_in_bytes / std::mem::size_of::<u32>();
-                    let start_ptr = &push_constants as *const PushConstants as *const u32;
-                    let bytes = std::slice::from_raw_parts(start_ptr, size_in_u32s);
-                    command_buffer.push_graphics_constants(
-                        &res.pipeline_layout,
-                        ShaderStageFlags::VERTEX,
-                        0,
-                        bytes,
-                    );
+                    let angle = start_time.elapsed().as_secs_f32();
 
-                    let vertex_count = mesh.len() as u32;
-                    command_buffer.draw(0..vertex_count, 0..1);
+                    let things_to_draw = &[PushConstants {
+                        transform: make_transform([0., 0., 0.5], angle, 1.0),
+                    }];
+
+                    for thing in things_to_draw {
+                        use gfx_hal::pso::ShaderStageFlags;
+
+                        let size_in_bytes = std::mem::size_of::<PushConstants>();
+                        let size_in_u32s = size_in_bytes / std::mem::size_of::<u32>();
+                        let start_ptr = thing as *const PushConstants as *const u32;
+                        let bytes = std::slice::from_raw_parts(start_ptr, size_in_u32s);
+                        command_buffer.push_graphics_constants(
+                            &res.pipeline_layout,
+                            ShaderStageFlags::VERTEX,
+                            0,
+                            bytes,
+                        );
+
+                        let vertex_count = mesh.len() as u32;
+                        command_buffer.draw(0..vertex_count, 0..1);
+                    }
 
                     command_buffer.end_render_pass();
                     command_buffer.finish();

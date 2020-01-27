@@ -110,7 +110,7 @@ fn main() {
     let pipeline = {
         use gfx_hal::pass::Subpass;
         use gfx_hal::pso::{
-            self, BlendState, ColorBlendDesc, ColorMask, EntryPoint, GraphicsPipelineDesc,
+            self, BlendState, ColorBlendDesc, ColorMask, EntryPoint, Face, GraphicsPipelineDesc,
             GraphicsShaderSet, Primitive, Rasterizer, Specialization,
         };
         use glsl_to_spirv::ShaderType;
@@ -155,7 +155,10 @@ fn main() {
         let mut pipeline_desc = GraphicsPipelineDesc::new(
             shader_entries,
             Primitive::TriangleList,
-            Rasterizer::FILL,
+            Rasterizer {
+                cull_face: Face::BACK,
+                ..Rasterizer::FILL
+            },
             &pipeline_layout,
             Subpass {
                 index: 0,

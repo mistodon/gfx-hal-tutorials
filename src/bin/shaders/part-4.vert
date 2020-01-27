@@ -11,6 +11,6 @@ layout(push_constant) uniform PushConstants {
 layout(location = 0) out vec3 vertex_normal;
 
 void main() {
-    vertex_normal = (push_constants.transform * vec4(normal, 0.0)).xyz;
+    vertex_normal = normalize((push_constants.transform * vec4(normal, 0.0)).xyz);
     gl_Position = push_constants.transform * vec4(position, 1.0);
 }

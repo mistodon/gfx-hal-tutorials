@@ -7,6 +7,7 @@ General TODOs
 4.  Fix all the expect/unwraps
 5.  Search for last minute TODOs
 6.  Start with the shaders in every part!
+7.  Get the color space correct
 
 Topic dependencies
 ===

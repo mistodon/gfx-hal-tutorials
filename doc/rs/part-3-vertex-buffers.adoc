@@ -85,6 +85,8 @@ include::../part-3-vertex-buffers.adoc[tag=bind_vertex_buffer]
 
 include::../part-1-triangle.adoc[tag=begin_render_pass]
 
+include::../part-3-vertex-buffers.adoc[tag=matrix_helper]
+
 include::../part-3-vertex-buffers.adoc[tag=push_constant_data]
 
 include::../part-3-vertex-buffers.adoc[tag=draw_call]
