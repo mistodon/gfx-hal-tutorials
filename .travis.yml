@@ -4,6 +4,6 @@ matrix:
   include:
     - rust: stable
       before_script:
+        - sudo apt-get -y install asciidoctor
         - rustup component add rustfmt
-        - rustup component add clippy
       script: ./run_tests
