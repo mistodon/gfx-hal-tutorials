@@ -1,235 +1,16 @@
-:hidecomments:
+:is_blog:
 
-First, let's begin our main function and create an event loop:
+# Shaders
 
-[source,rust]
-----
-tag::main_start[]
-ifndef::hidecomments[]
-// TODO: Reorder declarations so that they're as close to their usage sites as they can be
-// TODO: Try to create the window with a LogicalSize directly - without screwing
-//  up swapchain dimensions.
-// TODO: Look at the error types for every `expect` to set a good message.
-endif::hidecomments[]
-fn main() {
-    use gfx_hal::{device::Device, window::Surface, Instance as _};
+Where possible in these tutorials, I'd like to start with the shaders. I want to first focus on what we're going to draw, and _then_ delve into the how.
 
-end::main_start[]
-tag::app_name[]
-    const APP_NAME: &'static str = "Part 1: Drawing a triangle";
-end::app_name[]
-tag::main_post_name[]
-    const WINDOW_SIZE: [u32; 2] = [512, 512];
+Our shaders are written in GLSL, which we'll compile to SPIR-V - the format `gfx` uses - at runtime.
 
-    let event_loop = winit::event_loop::EventLoop::new();
-end::main_post_name[]
-
-    // ...
-}
-----
-
-You'll notice we also imported a few traits from the `gfx_hal` crate. In general, throughout this tutorial I'll try to keep imports close to where they are used. The three traits above are used in many places, however.
-
-We defined a constant for the `WINDOW_SIZE` above, but before we can actually create a window, there's some subtleties to address when it comes to resolution. Blah blah blah, so we need both a _logical size_ and a _physical size_.
-
-[source,rust]
-----
-tag::window_size[]
-    let (logical_window_size, physical_window_size) = {
-        use winit::dpi::{LogicalSize, PhysicalSize};
-
-        let dpi = event_loop.primary_monitor().scale_factor();
-        let logical: LogicalSize<u32> = WINDOW_SIZE.into();
-        let physical: PhysicalSize<u32> = logical.to_physical(dpi);
-
-        (logical, physical)
-    };
-end::window_size[]
-----
-
-The _physical size_ is what we're concerned with when it comes to rendering, as we want our rendering surface to represent every pixel. So let's define that now:
-
-[source,rust]
-----
-tag::surface_extent[]
-    use gfx_hal::window::Extent2D;
-    let mut surface_extent = Extent2D {
-        width: physical_window_size.width,
-        height: physical_window_size.height,
-    };
-end::surface_extent[]
-----
-
-Make the window:
-
-[source,rust]
-----
-tag::window[]
-    let window = winit::window::WindowBuilder::new()
-        .with_title(APP_NAME)
-        .with_inner_size(logical_window_size)
-        .build(&event_loop)
-        .expect("TODO");
-end::window[]
-----
-
-Before we do any graphics, let's jump ahead and set up our main event loop:
-
-[source,rust]
-----
-tag::event_loop_start[]
-    let mut should_rebuild_swapchain = true;
-
-    event_loop.run(move |event, _, control_flow| {
-        use winit::event::{Event, WindowEvent};
-        use winit::event_loop::ControlFlow;
-
-        match event {
-            Event::WindowEvent { event, .. } => match event {
-                WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
-                WindowEvent::Resized(dims) => {
-                    surface_extent = Extent2D {
-                        width: dims.width,
-                        height: dims.height,
-                    };
-                    should_rebuild_swapchain = true;
-                }
-                WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                    surface_extent = Extent2D {
-                        width: new_inner_size.width,
-                        height: new_inner_size.height,
-                    };
-                    should_rebuild_swapchain = true;
-                }
-                _ => (),
-            },
-            Event::MainEventsCleared => window.request_redraw(),
-            Event::RedrawRequested(_) => {
-end::event_loop_start[]
-                // ...
-tag::event_loop_end[]
-            }
-            _ => (),
-        }
-    });
-end::event_loop_end[]
-----
-
-Here's what all that does: responding to close, resize, and driving draw loop.
-
-Now you should be able to run it and see an empty window. I hope you enjoy that, because it's all you're going to see until the very last moment of this tutorial. It's a good idea to run the program after each change though, just to make sure there are no crashes.
-
-So now we have a window. If we want to be able to draw a triangle, we're going to have to talk to the GPU.
-
-[source,rust]
-----
-tag::instance[]
-    let (instance, surface, adapter) = {
-        let instance = backend::Instance::create(APP_NAME, 1).expect("TODO");
-        let surface = unsafe { instance.create_surface(&window).expect("TODO") };
-        let adapter = instance.enumerate_adapters().remove(0);
-
-        (instance, surface, adapter)
-    };
-end::instance[]
-----
-
-_TODO_: Talk about panics due to un-cleaned-up resources, and that we'll fix it later.
-
-[source,rust]
-----
-tag::device[]
-    let (device, mut queue_group) = {
-        use gfx_hal::queue::QueueFamily;
-
-        let queue_family = adapter
-            .queue_families
-            .iter()
-            .find(|family| {
-                surface.supports_queue_family(family) && family.queue_type().supports_graphics()
-            })
-            .expect("TODO");
-
-        let mut gpu = unsafe {
-            use gfx_hal::adapter::PhysicalDevice;
-
-            adapter
-                .physical_device
-                .open(&[(queue_family, &[1.0])], gfx_hal::Features::empty())
-                .expect("TODO")
-        };
-
-        (gpu.device, gpu.queue_groups.pop().expect("TODO"))
-    };
-end::device[]
-----
-
-[source,rust]
-----
-tag::surface_color_format[]
-    let surface_color_format = {
-        use gfx_hal::format::{ChannelType, Format};
-
-        let supported_formats = surface.supported_formats(&adapter.physical_device);
-        supported_formats.map_or(Format::Rgba8Srgb, |formats| {
-            formats
-                .iter()
-                .find(|format| format.base_format().1 == ChannelType::Srgb)
-                .map(|format| *format)
-                .unwrap_or(formats[0])
-        })
-    };
-end::surface_color_format[]
-----
-
-[source,rust]
-----
-tag::render_pass[]
-    let render_pass = {
-        use gfx_hal::image::Layout;
-        use gfx_hal::pass::{
-            Attachment, AttachmentLoadOp, AttachmentOps, AttachmentStoreOp, SubpassDesc,
-        };
-
-        let color_attachment = Attachment {
-            format: Some(surface_color_format),
-            samples: 1,
-            ops: AttachmentOps::new(AttachmentLoadOp::Clear, AttachmentStoreOp::Store),
-            stencil_ops: AttachmentOps::DONT_CARE,
-            layouts: Layout::Undefined..Layout::Present,
-        };
-
-        let subpass = SubpassDesc {
-            colors: &[(0, Layout::ColorAttachmentOptimal)],
-            depth_stencil: None,
-            inputs: &[],
-            resolves: &[],
-            preserves: &[],
-        };
-
-        unsafe {
-            device
-                .create_render_pass(&[color_attachment], &[subpass], &[])
-                .expect("TODO")
-        }
-    };
-end::render_pass[]
-----
-
-Next, we're going to define our rendering pipeline. This starts with the pipeline layout, which is very simple for our case:
-
-[source,rust]
-----
-tag::pipeline_layout[]
-    let pipeline_layout = unsafe { device.create_pipeline_layout(&[], &[]).expect("TODO") };
-end::pipeline_layout[]
-----
-
-Before we get into the pipeline itself, we'll have to write some shaders for it to use:
+So first off, here's the vertex shader:
 
 [source,glsl]
 ----
-// Vertex shader
+// shaders/part-1.vert
 tag::vertex_shader[]
 #version 450
 #extension GL_ARB_separate_shader_objects : enable
@@ -246,9 +27,13 @@ void main() {
 end::vertex_shader[]
 ----
 
+It's so simple that it doesn't even have any inputs. Instead we define the triangle vertices as a constant array of three positions, and use the `gl_VertexIndex` built-in to index that array.[^1]
+
+Next is our fragment shader:
+
 [source,glsl]
 ----
-// Fragment shader
+// shaders/part-1.frag
 tag::fragment_shader[]
 #version 450
 #extension GL_ARB_separate_shader_objects : enable
@@ -261,50 +46,690 @@ void main() {
 end::fragment_shader[]
 ----
 
+It's also simple. All it does is output a nice lilac color. Hopefully now you can imagine what the final image will look like. (Or you've seen a thumbnail image and you already know.) Now let's create a `gfx` application to render this image.
+
+# Setup
+
+The first thing we have to do is create a new Rust project (`cargo new gfx-hal-tutorials`) and edit the default `Cargo.toml` file:
+
+[source,text]
+----
+# Cargo.toml
+tag::cargo_toml[]
+[package]
+name = "gfx-hal-tutorials"
+version = "0.1.0"
+ifndef::is_blog[]
+authors = ["Claire Harris <wishing.engine@gmail.com>"]
+endif::is_blog[]
+edition = "2018"
+license = "CC0-1.0"
+
+[dependencies]
+bincode = "~1.2.1"
+gfx-hal = "=0.4.1"
+glsl-to-spirv = "=0.1.7"
+image = "~0.22.4"
+serde = { version = "~1.0.104", features = ["derive"] }
+winit = "~0.20.0"
+
+[target.'cfg(target_os = "macos")'.dependencies.backend]
+package = "gfx-backend-metal"
+version = "=0.4.2"
+
+[target.'cfg(windows)'.dependencies.backend]
+package = "gfx-backend-dx12"
+version = "=0.4.3"
+
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies.backend]
+package = "gfx-backend-vulkan"
+version = "=0.4.0"
+end::cargo_toml[]
+----
+
+There are a few dependencies above that aren't used by this tutorial, but will be in future parts. Aside from those we have:
+
+- The `winit` crate for window management.
+- The `gfx-hal` crate which defines the traits that the backends implement.
+- And the `gfx-backend-*` crates, each representing an available graphics backend.
+
+The bizarre `[target.'cfg(...)'.dependencies.backend]` syntax allows us to easily be generic across different operating systems. What this does is change the contents of the `backend` crate depending on the OS. So `gfx-backend-metal` for `macos`, and so on.
+
+Our code can just use the magic `backend` crate and should work the same on all of these platforms.
+
+The next thing to do is start putting code in our `main.rs` to initialize our graphics resources.
+
+# Initialization
+
+One of the nice things (from a performance and correctness standpoint) about `gfx` is that a lot of the work is frontloaded. However, that means there's a lot of initialization to do - lots of selecting, creating, and configuring resources. But by contrast, when the initialization is done, the actual rendering is very simple. It's basically just filling command buffers with commands and submitting them to a command queue.
+
+So here's a quick summary of the initialization that's required before that:
+
+* A **window** to display our rendered image.
+* A backend **instance** to access the graphics API. This gives us access to:
+    ** A **surface** on which to render, and then present to the window.
+    ** An **adapter** which represents a physical device (like a graphics card).
+* One or more **queue groups**, which give us access to **command queues**. (More on that soon.)
+* A **device**, which is a _logical_ device we obtain by configuring the _adapter_. This will be used to create most of the rest of our resources, including:
+    ** A **command pool** for allocating **command buffers** to send instructions to the command queues. (We'll talk about what that means later.)
+    ** A **render pass** which defines how different images are used. (For example, which to render to, which is a depth buffer, etc.)
+    ** A graphics **pipeline** which contains our shaders and specifies how exactly to render each triangle.
+    ** And finally, a **fence** and a **semaphore** for synchronizing our program. (More on that later.)
+
+It's a lot, but at least you only need to do it once.
+
+## Creating a window
+
+The very first thing for us to do is define a `main` function:
+
 [source,rust]
 ----
-tag::pipeline_start[]
-    let pipeline = {
-        use gfx_hal::pass::Subpass;
-        use gfx_hal::pso::{
-            self, BlendState, ColorBlendDesc, ColorMask, EntryPoint, Face, GraphicsPipelineDesc,
-            GraphicsShaderSet, Primitive, Rasterizer, Specialization,
-        };
-        use glsl_to_spirv::ShaderType;
-
-end::pipeline_start[]
-        // ...
-tag::pipeline_end[]
+// src/main.rs (or other binary)
+tag::main_start[]
+fn main() {
+    use gfx_hal::{
+        device::Device,
+        window::{Extent2D, PresentationSurface, Surface},
+        Instance,
     };
-end::pipeline_end[]
+    use glsl_to_spirv::ShaderType;
+
+end::main_start[]
+tag::app_name[]
+    const APP_NAME: &'static str = "Part 1: Drawing a triangle";
+end::app_name[]
+tag::main_post_name[]
+    const WINDOW_SIZE: [u32; 2] = [512, 512];
+
+ifeval::[{sourcepart} == 1]
+    // Any `winit` application starts with an event loop. You need one of these
+    // to create a window.
+endif::[]
+    let event_loop = winit::event_loop::EventLoop::new();
+end::main_post_name[]
+
+    // ...
+}
 ----
+
+You'll notice we imported a few common traits and structs from the `gfx_hal` crate. In general, throughout this tutorial I'll try to keep imports close to where they are used, but for the more common items, it makes sense to import them up-front.
+
+The `gfx_hal` crate itself is mostly agnostic to the windowing library you use with it. Here we're going to use `winit`, and every `winit` program starts with creating an `EventLoop`. We can use the event loop to create our window.
+
+You'll also notice that we defined a constant for the `WINDOW_SIZE` above, but before we can actually create a window, there's some subtleties to address when it comes to resolution. I feel the https://docs.rs/winit/0.21.0/winit/dpi/index.html[winit docs] explain this better than I ever could, but I'll give it a try. Feel free to read the winit docs and skip this next paragraph though.
+
+[quote]
+____
+High-DPI displays, to avoid having unusably small UI elements, pretend to have a smaller size than they actually do. For example, a screen 2048 _physical_ pixels wide may report a _logical_ size of 1024, along with a _scale factor_ of 2. This means that a 1024 pixel window will fill the whole screen, because the OS will scale it up by 2 under the hood to cover all 2048 pixels. It also means that on my other, more ancient 1024 pixel monitor with a scale factor of just 1, the window will appear to be the same size, without me having to configure the window differently.
+____
+
+So _physical size_ represents real life pixels, and vary a lot across different devices, while _logical size_ is an abstraction representing a smaller size which is more consistent between devices.
 
 [source,rust]
 ----
-tag::pipeline_compile_shader[]
-        let compile_shader = |glsl, shader_type| {
-            use std::io::{Cursor, Read};
+tag::window_size[]
+ifeval::[{sourcepart} == 1]
+    // Before we create a window, we also need to know what size to make it.
+    //
+    // Note that logical and physical window size are different though!
+    //
+    // Physical size is the real-life size of the display, in physical pixels.
+    // Logical size is the scaled display, according to the OS. High-DPI
+    // displays will present a smaller logical size, which you can scale up by
+    // the DPI to determine the physical size.
+endif::[]
+    let (logical_window_size, physical_window_size) = {
+        use winit::dpi::{LogicalSize, PhysicalSize};
 
-            let mut spirv_bytes = vec![];
-            let mut compiled_file = glsl_to_spirv::compile(glsl, shader_type).expect("TODO");
-            compiled_file.read_to_end(&mut spirv_bytes).expect("TODO");
-            let spirv = pso::read_spirv(Cursor::new(&spirv_bytes)).expect("TODO");
-            unsafe { device.create_shader_module(&spirv).expect("TODO") }
+        let dpi = event_loop.primary_monitor().scale_factor();
+        let logical: LogicalSize<u32> = WINDOW_SIZE.into();
+        let physical: PhysicalSize<u32> = logical.to_physical(dpi);
+
+        (logical, physical)
+    };
+end::window_size[]
+----
+
+The _physical size_ is what we're concerned with when it comes to rendering, as we want our rendering surface to cover every pixel. We'll create an `Extent2D` structure of this size which several `gfx` methods will require later:
+
+[source,rust]
+----
+tag::surface_extent[]
+ifeval::[{sourcepart} == 1]
+    // This will be the size of the final image we render, and therefore the
+    // size of the surface we render to.
+    //
+    // We use the *physical* size because we want a rendered image that covers
+    // every real pixel.
+endif::[]
+    let mut surface_extent = Extent2D {
+        width: physical_window_size.width,
+        height: physical_window_size.height,
+    };
+end::surface_extent[]
+----
+
+For constructing the window itself however, we want to use the _logical size_ so that it appears consistent across different display densities:
+
+[source,rust]
+----
+tag::window[]
+ifeval::[{sourcepart} == 1]
+    // We use the *logical* size to build the window because this will give a
+    // consistent size on displays of different pixel densities.
+endif::[]
+    let window = winit::window::WindowBuilder::new()
+        .with_title(APP_NAME)
+        .with_inner_size(logical_window_size)
+        .build(&event_loop)
+        .expect("Failed to create window");
+end::window[]
+----
+
+Before we do anything else, let's jump ahead and set up our main event loop so we can see our window open:
+
+[source,rust]
+----
+tag::event_loop_start[]
+ifdef::is_blog[]
+    // This will be very important later! It must be initialized to `true` so
+    // that we rebuild the swapchain on the first frame.
+endif::is_blog[]
+ifeval::[{sourcepart} == 1]
+    // This will be very important later! It must be initialized to `true` so
+    // that we rebuild the swapchain on the first frame.
+endif::[]
+    let mut should_configure_swapchain = true;
+
+ifdef::is_blog[]
+    // Note that this takes a `move` closure. This means it will take ownership
+    // over any resources referenced within. It also means they will be dropped
+    // only when the application is quit.
+endif::is_blog[]
+ifeval::[{sourcepart} == 1]
+    // Note that this takes a `move` closure. This means it will take ownership
+    // over any resources referenced within. It also means they will be dropped
+    // only when the application is quit.
+endif::[]
+    event_loop.run(move |event, _, control_flow| {
+        use winit::event::{Event, WindowEvent};
+        use winit::event_loop::ControlFlow;
+
+        match event {
+            Event::WindowEvent { event, .. } => match event {
+                WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
+ifeval::[{sourcepart} == 1]
+                // If the window changes size, or the display changes
+                // DPI / scale-factor, then the *physical* size will change,
+                // which means our surface needs updated too.
+                //
+                // When the surface changes size, we need to rebuild the
+                // swapchain so that its images are the right size.
+endif::[]
+                WindowEvent::Resized(dims) => {
+                    surface_extent = Extent2D {
+                        width: dims.width,
+                        height: dims.height,
+                    };
+                    should_configure_swapchain = true;
+                }
+                WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
+                    surface_extent = Extent2D {
+                        width: new_inner_size.width,
+                        height: new_inner_size.height,
+                    };
+                    should_configure_swapchain = true;
+                }
+                _ => (),
+            },
+ifeval::[{sourcepart} == 1]
+            // In an interactive application, you would handle your logic
+            // updates here.
+            //
+            // Right now, we just want to redraw the window each frame
+            // and that's all.
+endif::[]
+            Event::MainEventsCleared => window.request_redraw(),
+            Event::RedrawRequested(_) => {
+end::event_loop_start[]
+                // Here's where we'll perform our rendering.
+tag::event_loop_end[]
+            }
+            _ => (),
+        }
+    });
+end::event_loop_end[]
+----
+
+(Note the `should_configure_swapchain` variable. The swapchain is a _chain_ of images for rendering onto. Each frame, one of those images is displayed onscreen. I'll explain more about this later - for now just make sure you set this variable to `true`.)
+
+As for the rest of it, we're passing a closure to `event_loop.run(...)`. This closure is where we'll handle all of our input events, and also where we'll instruct `gfx` to render our scene.
+
+To quickly summarize the events we're handling here:
+
+- `CloseRequested`: This happens when a user clicks the 'X' on the window. We use `ControlFlow::Exit` to signal our application to stop.
+- `Resized`: This happens when a user resizes the window. We want to make sure to store the new size and set `should_configure_swapchain` to `true`, because this will change the dimensions of our underlying surface.
+- `ScaleFactorChanged`: This could happen if the user drags the window onto a monitor with a different DPI setting. This also changes the underlying surface dimensions, so we do the same as above.
+- `MainEventsCleared`: This happens every frame once other input events have been handled. Here is where you would perform the non-rendering logic of your application - but all we want to do is request a redraw.
+- `RedrawRequested`: As the name implies, this event happens when we request a redraw. Here's where we'll put our rendering logic once we're ready.
+
+Now you should be able to run the app and see an empty window. I hope you like looking at it, because it's all you're going to see until the very last moment of this tutorial. It's a good idea to run the program after each change though, just to make sure there are no crashes.
+
+So now we have a window. If we want to be able to draw a triangle, we're going to have to talk to the GPU.
+
+## Graphics resources
+
+As we're still in the process of initialization, this must all take place **before** the `event_loop.run(...)` call.
+
+Our very first call to `gfx` will be to create an `Instance` which serves as an entrypoint to the backend graphics API. We use this only to acquire a `surface` to draw on, and an `adapter` which represents a physical graphics device (e.g. a graphics card):
+
+[source,rust]
+----
+tag::instance[]
+ifeval::[{sourcepart} == 1]
+    // The `instance` is an entry point to the graphics API. The `1` in the
+    // call is a version number - we don't care about that for now.
+    //
+    // The `surface` is an abstraction of the OS window we're drawing into.
+    // In `gfx`, it also manages the swap chain, which is a chain of
+    // multiple images for us to render to. While one is being displayed, we
+    // can write to another one - and then swap them, hence the name.
+    //
+    // The `adapter` represents a physical device. A graphics card for example.
+    // The host may have more than one, but below, we just take the first.
+endif::[]
+    let (instance, surface, adapter) = {
+        let instance = backend::Instance::create(APP_NAME, 1).expect("Backend not supported");
+
+        let surface = unsafe {
+            instance
+                .create_surface(&window)
+                .expect("Failed to create surface for window")
         };
 
-end::pipeline_compile_shader[]
-tag::shaders[]
-        let vertex_shader_module =
-            compile_shader(include_str!("shaders/part-1.vert"), ShaderType::Vertex);
+        let adapter = instance.enumerate_adapters().remove(0);
 
-        let fragment_shader_module =
-            compile_shader(include_str!("shaders/part-1.frag"), ShaderType::Fragment);
+        (instance, surface, adapter)
+    };
+end::instance[]
+----
+
+Next we want to acquire a logical `device` which will allow us to create the rest of our resources. You can think of a logical device as a particular configuration of a physical device - with or without certain features enabled.
+
+We also want a `queue_group` to give us access to command queues so we can later give commands to the GPU. There are different families of queues with different capabilities. Our only requirements are:
+
+1.  That the queues are compatible with our surface, and
+2.  That the queues support graphics commands.
+
+Once we select an appropriate `queue_family`, we can obtain both our device, and our queue group:
+
+[source,rust]
+----
+tag::device[]
+    let (device, mut queue_group) = {
+        use gfx_hal::queue::QueueFamily;
+
+ifeval::[{sourcepart} == 1]
+        // We need a command queue to submit commands to the GPU.
+        // Here we select the family (type) of queue we want. For rendering
+        // (as opposed to compute, etc.) we need one that supports graphics.
+        // We also of course need one that our surface supports.
+endif::[]
+        let queue_family = adapter
+            .queue_families
+            .iter()
+            .find(|family| {
+                surface.supports_queue_family(family) && family.queue_type().supports_graphics()
+            })
+            .expect("No compatible queue family found");
+
+ifeval::[{sourcepart} == 1]
+        // The `open` method returns us a logical `device`, and the set of
+        // queue groups we asked for.
+        //
+        // A logical device is a view of the physical device, with or without
+        // certain features. Features are similar to Rust features (optional
+        // functionality) and in our example here, we don't request any.
+        //
+        // A `queue_group` is exactly what it sounds like. In the call below,
+        // we're requesting one queue group of the above `queue_family`. We're
+        // also asking for only one queue (because the list `&[1.0]` has only
+        // one item) with priority `1.0`. The priorities are relative and so
+        // are not important if you only have one queue.
+endif::[]
+        let mut gpu = unsafe {
+            use gfx_hal::adapter::PhysicalDevice;
+
+            adapter
+                .physical_device
+                .open(&[(queue_family, &[1.0])], gfx_hal::Features::empty())
+                .expect("Failed to open device")
+        };
+
+        (gpu.device, gpu.queue_groups.pop().unwrap())
+    };
+end::device[]
+----
+
+### Command buffers
+
+As previously mentioned, in order to render anything, we have to send commands to the GPU via a command queue. To do this efficiently, we batch those commands together in a structure called a _command buffer_. These command buffers are allocated from a _command pool_.
+
+We create a `command_pool` below, passing the family of our queue group in so that the buffers allocated from it are compatible with those queues, We then allocate a single primary (non-nested) `command_buffer` from it which we will re-use each frame:
+
+[source,rust]
+----
+tag::command_pool[]
+ifeval::[{sourcepart} == 1]
+    // Earlier we obtained a command queue to submit drawing commands to. The
+    // data structure that carries those commands is called a `command_buffer`,
+    // which are allocated from a `command_pool`.
+endif::[]
+    let (command_pool, mut command_buffer) = unsafe {
+        use gfx_hal::command::Level;
+        use gfx_hal::pool::{CommandPool, CommandPoolCreateFlags};
+
+ifeval::[{sourcepart} == 1]
+        // To create our command pool, we have to specify the type of queue we
+        // will be submitting it to. Luckily, we already have a queue and can
+        // get the family from that.
+        //
+        // Ignore `CommandPoolCreateFlags` for now.
+endif::[]
+        let mut command_pool = device
+            .create_command_pool(queue_group.family, CommandPoolCreateFlags::empty())
+            .expect("Out of memory");
+
+ifeval::[{sourcepart} == 1]
+        // If we were planning to draw things in parallel or otherwise optimize
+        // our command submissions, we might use more than one buffer. But for
+        // now we'll just allocate a single one and re-use it for each frame.
+        //
+        // Level indicates whether it's a primary or secondary command buffer.
+        // Secondary buffers are those nested within primary ones, but we don't
+        // need to worry about that just now.
+endif::[]
+        let command_buffer = command_pool.allocate_one(Level::Primary);
+
+        (command_pool, command_buffer)
+    };
+end::command_pool[]
+----
+
+Now we're able to send commands - but we haven't yet talked about what those commands look like.
+
+The `gfx-hal` library adopts a model very similar to the Vulkan API, where a typical command buffer might look something like:
+
+1.  Begin the command buffer
+2.  Begin a **render pass**
+3.  Bind a **pipeline** (and potentially other state, like vertex buffers etc.)
+4.  Draw some vertices (usually as triangles)
+5.  End the render pass
+6.  Finish the command buffer
+
+A **render pass** is an object that describes how **images** should be used while rendering. When you hear _images_, you may be thinking of textures - but this also applies to images such as the surface of the window, and the depth buffer. If you were rendering to multiple different images, you would need multiple render passes. We don't need to bother with that right now - but we still need a single render pass to draw anything at all.
+
+A **pipeline** is probably the most important and complex object we'll be dealing with in these tutorials. Pipelines define almost all of the rendering process, including the shaders, type of primitive to draw (triangles, lines, etc.), the inputs to use (uniforms, textures), and so on. You can _bind_ it in a command buffer, and it will affect everything you draw until another pipeline is bound.
+
+So in order to build a useful command buffer, we'll need to create a render pass and a pipeline. Let's start with the render pass.
+
+### Render passes
+
+The first thing we need for the render pass is a color format - the format of each pixel in the image. Different displays and graphics cards might support different formats - imagine in the extreme a grayscale display that only supports one color channel. We want to pick one compatible with both our surface and device:
+
+[source,rust]
+----
+tag::surface_color_format[]
+ifeval::[{sourcepart} == 1]
+    // We need to determine a format for the pixels in our surface image -
+    // that is: what bytes, in what order, represent which color components.
+    //
+    // First we get a list of supported formats (where `None` means that any is
+    // supported). Next, we try to pick one that supports SRGB, so that gamma
+    // correction is handled for us. If we can't, we just pick the first one,
+    // or default to `Rgba8Srgb`.
+endif::[]
+    let surface_color_format = {
+        use gfx_hal::format::{ChannelType, Format};
+
+        let supported_formats = surface
+            .supported_formats(&adapter.physical_device)
+            .unwrap_or(vec![]);
+
+        let default_format = *supported_formats.get(0).unwrap_or(&Format::Rgba8Srgb);
+
+        supported_formats
+            .into_iter()
+            .find(|format| format.base_format().1 == ChannelType::Srgb)
+            .unwrap_or(default_format)
+    };
+end::surface_color_format[]
+----
+
+We get a list of supported formats and try to pick the first one that supports SRGB (so https://en.wikipedia.org/wiki/Gamma_correction#Microsoft_Windows,_Mac,_sRGB_and_TV/video_standard_gammas[gamma correction] is handled for us). Failing that, we default to whatever format comes first. If the surface doesn't return us any supported formats - that means we can choose whatever we want, so we choose `Rgba8Srgb`.
+
+With that, we can create our render pass. It's going to comprise one **color attachment** and one **subpass**.
+
+You can think of an **attachment** as a slot for an image to fill. The color attachment is what we'll be rendering to. Whatever image is bound to that attachment when we render with this render pass is the image we will be rendering to.
+
+A **subpass** defines a subset of those attachments to use. If we wanted to change which attachment was the color attachment in the middle of our render pass, we could use a second subpass to do this (though there are restrictions). You need at least one subpass, and that's all we'll provide:
+
+[source,rust]
+----
+tag::render_pass[]
+ifeval::[{sourcepart} == 1]
+    // A render pass defines which attachments (images) are to be used for
+    // what purposes. Right now, we only have a color attachment for the final
+    // output, but eventually we might have depth/stencil attachments, or even
+    // other color attachments for other purposes.
+endif::[]
+    let render_pass = {
+        use gfx_hal::image::Layout;
+        use gfx_hal::pass::{
+            Attachment, AttachmentLoadOp, AttachmentOps, AttachmentStoreOp, SubpassDesc,
+        };
+
+ifeval::[{sourcepart} == 1]
+        // This is an attachment for the final output. Note that it must have
+        // the same pixel format as our surface. It has `1` sample-per-pixel
+        // (which isn't worth thinking about too much).
+        //
+        // The `ops` parameter describes what to do to the image at the start
+        // and end of the render pass (for color and depth). We want to `Clear`
+        // it first, and then `Store` our rendered pixels to it at the end.
+        //
+        // The `stencil_ops` are the same, but for the stencil buffer, which we
+        // aren't using yet.
+        //
+        // The `layouts` parameter defines the before and after layouts for the
+        // image - essentially how it is laid out in memory. This is only a
+        // hint and mostly for optimisation. Here, we know we're going to
+        // `Present` the image to the window, so we want a layout optimised for
+        // that by the end.
+endif::[]
+        let color_attachment = Attachment {
+            format: Some(surface_color_format),
+            samples: 1,
+            ops: AttachmentOps::new(AttachmentLoadOp::Clear, AttachmentStoreOp::Store),
+            stencil_ops: AttachmentOps::DONT_CARE,
+            layouts: Layout::Undefined..Layout::Present,
+        };
+
+ifeval::[{sourcepart} == 1]
+        // A render pass could have multiple subpasses to it, but here we only
+        // want one. The `0` is an id - an index into the final list of
+        // attachments. It means we're using attachment `0` as a color
+        // attachment.
+        //
+        // The `Layout` is the layout to be used *during* the render pass.
+endif::[]
+        let subpass = SubpassDesc {
+            colors: &[(0, Layout::ColorAttachmentOptimal)],
+            depth_stencil: None,
+            inputs: &[],
+            resolves: &[],
+            preserves: &[],
+        };
+
+        unsafe {
+ifeval::[{sourcepart} == 1]
+            // Note that we're passing a list of attachments here.
+            //
+            // The attachment in index `0` - `color_attachment` - will be
+            // bound as a color attachment, because the subpass above
+            // specifies the id `0`.
+            //
+            // The third parameter is for expressing `dependencies` between
+            // subpasses, which we don't need.
+endif::[]
+            device
+                .create_render_pass(&[color_attachment], &[subpass], &[])
+                .expect("Out of memory")
+        }
+    };
+end::render_pass[]
+----
+
+Note that the subpass lists index `0` in the `colors` field. This index refers to the list of attachments passed into `create_render_pass` and means we're using the first (index `0`) attachment as a color attachment.
+
+### Pipelines
+
+Next, we're going to define our rendering pipeline. This starts with the pipeline layout, which is very simple for our case:
+
+[source,rust]
+----
+tag::pipeline_layout[]
+    let pipeline_layout = unsafe {
+        device
+            .create_pipeline_layout(&[], &[])
+            .expect("Out of memory")
+    };
+end::pipeline_layout[]
+----
+
+Ordinarily this would define the kind of resources and constants we want to make available to our pipeline while rendering. Things like textures and matrices required by our shaders. Of course, our shaders are so simple they don't require such finery, so we just pass empty slices.
+
+Speaking of shaders:
+
+[source,rust]
+----
+tag::shaders[]
+    let vertex_shader = include_str!("shaders/part-1.vert");
+    let fragment_shader = include_str!("shaders/part-1.frag");
 end::shaders[]
 ----
 
+This includes both shaders as static strings within our program. Before we move on to the pipeline though, we're going to define one of the few actual functions we'll be writing in these tutorials.
+
+If you remember, these shaders are written in GLSL - which `gfx-hal` doesn't support directly. To use them, we'll have to first compile them to https://en.wikipedia.org/wiki/Standard_Portable_Intermediate_Representation#SPIR-V[SPIR-V] - a more efficient intermediate representation.
+
+Luckily, there is a crate, `glsl-to-spirv`, which can do that for us - even if it is a little fiddly. (It's not usually something you would do on the fly.)
+
+We have two shaders to compile and I don't like doing things twice, so naturally:
+
 [source,rust]
 ----
-tag::pipeline_shader_entries[]
+tag::compile_shader[]
+    /// Compile some GLSL shader source to SPIR-V.
+ifndef::is_blog[]
+    ///
+    /// We tend to write shaders in high-level languages, but the GPU doesn't
+    /// work with that directly. Instead, we can convert it to an intermediate
+    /// representation: SPIR-V. This is more easily interpreted and optimized
+    /// by your graphics card. As an added bonus, this allows us to use the
+    /// same shader code across different backends.
+    ///
+    /// We use the `glsl_to_spirv` crate, which leverages Khronos'
+    /// SPIRV-Cross compiler, to do the translation
+endif::is_blog[]
+    fn compile_shader(glsl: &str, shader_type: ShaderType) -> Vec<u32> {
+        use std::io::{Cursor, Read};
+
+ifeval::[{sourcepart} == 1]
+        // The `glsl_to_spirv` crate writes its output to a temporary file.
+        // We'll have to read it into memory afterwards.
+endif::[]
+        let mut compiled_file =
+            glsl_to_spirv::compile(glsl, shader_type).expect("Failed to compile shader");
+
+        let mut spirv_bytes = vec![];
+        compiled_file.read_to_end(&mut spirv_bytes).unwrap();
+
+ifeval::[{sourcepart} == 1]
+        // Our SPIR-V code is in raw bytes, but `gfx` expects it to be
+        // four-byte aligned, and therefore a sequence of `u32`s. The
+        // `read_spirv` function will validate the alignment and return this
+        // sequence as a `Vec`.
+endif::[]
+        let spirv = gfx_hal::pso::read_spirv(Cursor::new(&spirv_bytes)).expect("Invalid SPIR-V");
+
+        spirv
+    }
+end::compile_shader[]
+----
+
+Here we call `glsl_to_spirv::compile` to compile our GLSL source into a SPIR-V file, which we immediately read back into memory. (I did say it was fiddly.) We then pass `read_spirv` a view of this data which will ensure it is correctly aligned to 4-bytes (hence the `u32` in the return type). The resulting `Vec` contains the SPIR-V data we need for our pipeline.
+
+Now for the pipeline itself - the most complex structure we'll be building today. In future we may have multiple pipelines as well, so let's define another function:
+
+[source,rust]
+----
+tag::make_pipeline_fn_start[]
+    /// Create a pipeline with the given layout and shaders.
+ifndef::is_blog[]
+    ///
+    /// A pipeline contains nearly all the required information for rendering,
+    /// and is only usable within the render pass it's defined for.
+endif::is_blog[]
+    unsafe fn make_pipeline<B: gfx_hal::Backend>(
+        device: &B::Device,
+        render_pass: &B::RenderPass,
+        pipeline_layout: &B::PipelineLayout,
+        vertex_shader: &str,
+        fragment_shader: &str,
+    ) -> B::GraphicsPipeline {
+        use gfx_hal::pass::Subpass;
+        use gfx_hal::pso::{
+            BlendState, ColorBlendDesc, ColorMask, EntryPoint, Face, GraphicsPipelineDesc,
+            GraphicsShaderSet, Primitive, Rasterizer, Specialization,
+        };
+end::make_pipeline_fn_start[]
+        todo!()
+tag::make_pipeline_fn_end[]
+    };
+end::make_pipeline_fn_end[]
+----
+
+There are a couple of things worth mentioning about this already. The first is that we've written it to be generic across any backend. This not only makes the function more portable, but also makes it easier to write the types of the input parameters (e.g. `B::Device` instead of the specific `Device` struct from every single backend).
+
+The second thing to note is that we're passing in a specific render pass. This is because each pipeline is defined only for one render pass. If you need to use the same setup in different render passes, you unfortunately need to make two identical pipelines.
+
+Now let's start filling in the body of this function. The first thing we want to do is compile our shaders, create entry points for them, and then create a _shader set_:
+
+[source,rust]
+----
+tag::make_pipeline_fn_shader_entries[]
+        let vertex_shader_module = device
+            .create_shader_module(&compile_shader(vertex_shader, ShaderType::Vertex))
+            .expect("Failed to create vertex shader module");
+
+        let fragment_shader_module = device
+            .create_shader_module(&compile_shader(fragment_shader, ShaderType::Fragment))
+            .expect("Failed to create fragment shader module");
+
+ifeval::[{sourcepart} == 1]
+        // Shader modules are re-usable, and we could choose to define multiple
+        // entry functions or multiple different specialized versions for
+        // different pipelines. We specify which to use with the `EntryPoint`
+        // struct here.
+        //
+        // The `entry` parameter here refers to the name of the function in the
+        // shader that serves as the entry point.
+        //
+        // The `specialization` parameter allows you to tweak specific
+        // constants in the shaders. That's not in scope for this part, so we
+        // just use the empty default.
+endif::[]
         let (vs_entry, fs_entry) = (
             EntryPoint {
                 entry: "main",
@@ -325,12 +750,26 @@ tag::pipeline_shader_entries[]
             geometry: None,
             fragment: Some(fs_entry),
         };
-end::pipeline_shader_entries[]
+end::make_pipeline_fn_shader_entries[]
 ----
+
+You'll notice we had to create a _shader module_ for each shader first. This is so shaders can be re-used across different pipelines, but we won't be doing that now.
+
+The `EntryPoint` struct is exactly what it sounds like - it defines how your shader begins executing. We'll ignore specialization for now, but the `entry` parameter is just the name of the entry point function. (Like `fn main()` in Rust.)
+
+Finally, the `GraphicsShaderSet` defines which shader stages are used, and which shaders to use for them. For now, we only have a vertex and fragment shader to supply.
+
+We can now begin to configure the pipeline:
 
 [source,rust]
 ----
-tag::pipeline_desc[]
+tag::make_pipeline_fn_desc[]
+ifeval::[{sourcepart} == 1]
+        // Here is where we configure our pipeline. The `new` function sets the
+        // required properties, after which we can add additional sections to
+        // define what kind of render targets/attachments and vertex buffers it
+        // accepts.
+endif::[]
         let mut pipeline_desc = GraphicsPipelineDesc::new(
             shader_entries,
             Primitive::TriangleList,
@@ -338,120 +777,184 @@ tag::pipeline_desc[]
                 cull_face: Face::BACK,
                 ..Rasterizer::FILL
             },
-            &pipeline_layout,
+            pipeline_layout,
             Subpass {
                 index: 0,
-                main_pass: &render_pass,
+                main_pass: render_pass,
             },
         );
 
+ifeval::[{sourcepart} == 1]
+        // Here we specify that our pipeline will render to a color attachment.
+        // The `mask` defines which color channels (red, green, blue, alpha) it
+        // will write, and the `blend` parameter specifies how to blend the
+        // rendered pixel with the existing pixel in the attachment.
+        //
+        // In this case, the `BlendState::ALPHA` preset says to blend them
+        // based on their alpha values, which is usually what you want.
+endif::[]
         pipeline_desc.blender.targets.push(ColorBlendDesc {
             mask: ColorMask::ALL,
             blend: Some(BlendState::ALPHA),
         });
-end::pipeline_desc[]
+end::make_pipeline_fn_desc[]
 ----
+
+As mentioned, pipelines can get fairly complex. We use the `new` function to create a bare-bones pipeline, defining the shaders to use, the primitive to render, that we wish to cull back-faces. We also supply our pipeline layout and render pass. Now we can extend this configuration by modifying other fields.
+
+The only thing we add for now is a color target. This `ColorBlendDesc` is now the only target in the list, and therefore has index `0`. This means that it's telling us how to write color to color attachment `0` in the render pass. With `ColorMask::ALL` we say we're writing to all color channels, and with `BlendState::ALPHA` we say we want alpha blending where pixels overlap.
+
+The last thing to do is to create the pipeline, destroy the shader modules (as we don't plan to re-use them), and then return the pipeline:
 
 [source,rust]
 ----
-tag::pipeline_create[]
-        unsafe {
-            let pipeline = device
-                .create_graphics_pipeline(&pipeline_desc, None)
-                .expect("TODO");
+tag::make_pipeline_fn_create[]
+        let pipeline = device
+            .create_graphics_pipeline(&pipeline_desc, None)
+            .expect("Failed to create graphics pipeline");
 
-            device.destroy_shader_module(vertex_shader_module);
-            device.destroy_shader_module(fragment_shader_module);
+ifeval::[{sourcepart} == 1]
+        // Once the pipeline is created, we no longer need to keep
+        // the shader modules in memory. In theory, we could keep
+        // them around for creating other pipelines with the same
+        // shaders, but we don't need to.
+endif::[]
+        device.destroy_shader_module(vertex_shader_module);
+        device.destroy_shader_module(fragment_shader_module);
 
-            pipeline
-        }
-end::pipeline_create[]
+        pipeline
+end::make_pipeline_fn_create[]
 ----
+
+Then we simply call the function with our resources and shaders:
 
 [source,rust]
 ----
-tag::command_pool[]
-    let (command_pool, mut command_buffer) = unsafe {
-        use gfx_hal::command::Level;
-        use gfx_hal::pool::{CommandPool, CommandPoolCreateFlags};
-
-        let mut command_pool = device
-            .create_command_pool(queue_group.family, CommandPoolCreateFlags::empty())
-            .expect("TODO");
-        let command_buffer = command_pool.allocate_one(Level::Primary);
-
-        (command_pool, command_buffer)
+tag::make_pipeline[]
+    let pipeline = unsafe {
+        make_pipeline::<backend::Backend>(
+            &device,
+            &render_pass,
+            &pipeline_layout,
+            vertex_shader,
+            fragment_shader,
+        )
     };
-end::command_pool[]
+end::make_pipeline[]
 ----
+
+### Synchronization primitives
+
+The last two resources to create are synchronization primitives. The GPU can execute in parallel to the CPU, so we need some way of ensuring that they don't interfere with each other.
+
+The first thing to create is a `submission_complete_fence`. A fence allows the _CPU_ to wait for the _GPU_. In our case, we're going to use it to wait for the command buffer we submit to be available for writing again.
+
+The next is a `rendering_complete_semaphore`. A semaphore allows you to synchronize different processes _within_ the GPU. In our case we're going to use it to tell the GPU to wait until the frame has finished rendering before displaying it onscreen.
 
 [source,rust]
 ----
 tag::concurrency_primitives[]
-    let submission_complete_semaphore = device.create_semaphore().expect("TODO");
-    let submission_complete_fence = device.create_fence(true).expect("TODO");
+ifeval::[{sourcepart} == 1]
+    // Since the GPU may operate asynchronously, there are a few important
+    // things we have to synchronize. We use _fences_ to synchronize the CPU
+    // with the GPU, and we use _semaphores_ to synchronize separate processes
+    // within the GPU.
+    //
+    // Firstly, we have to ensure that our GPU commands have been submitted to
+    // the queue before we re-use the command buffer. This is what the
+    // `submission_complete_fence` is for.
+    //
+    // Secondly, we have to ensure that our image has been rendered before we
+    // display it on the screen.
+    // This is what the `rendering_complete_semaphore` is for.
+endif::[]
+    let submission_complete_fence = device.create_fence(true).expect("Out of memory");
+    let rendering_complete_semaphore = device.create_semaphore().expect("Out of memory");
 end::concurrency_primitives[]
 ----
 
-We have now created everything that we need to start rendering. But here's the part that sucks: we have to clean up after ourselves. Winit doesn't make this easy. Winit will drop them, but we don't want them to drop - we want to delete them. So first of all we'll group everything we need to destroy into one struct. (Rule of thumb: if you called a function called `create_<something>`, then it goes here.)
+We'll go into more detail with these when we start using them.
+
+# Memory management
+
+We have now created everything that we need to start rendering. But here's the part that sucks: we have to clean up after ourselves. This wouldn't be so bad if not for a specific intersection of two things. Namely that `winit` takes ownership over our resources and `drops` them, but `gfx` requires us to manually delete them (which we can't do because they've been moved).
+
+The neatest solution (that I can think of) is to wrap our resources in a struct with a `Drop` implementation to clean them up.
+
+So first of all we'll group everything we need to destroy into one struct. As a rule of thumb, if you called a function called `create_<something>`, then the `something` should go here:
 
 [source,rust]
 ----
 tag::resources_struct_start[]
-    // TODO: Order sensibly
     struct Resources<B: gfx_hal::Backend> {
         instance: B::Instance,
         surface: B::Surface,
         device: B::Device,
-        render_pass: B::RenderPass,
-        pipeline_layout: B::PipelineLayout,
-        pipeline: B::GraphicsPipeline,
+        render_passes: Vec<B::RenderPass>,
+        pipeline_layouts: Vec<B::PipelineLayout>,
+        pipelines: Vec<B::GraphicsPipeline>,
         command_pool: B::CommandPool,
-        submission_complete_semaphore: B::Semaphore,
         submission_complete_fence: B::Fence,
+        rendering_complete_semaphore: B::Semaphore,
 end::resources_struct_start[]
 tag::resources_struct_end[]
     }
 end::resources_struct_end[]
 ----
 
-Now unfortunately, we can't implement `Drop` for this struct directly. This is because the signature of `drop` takes a `&mut self` parameter, while the signatures of the `destroy_<something>` functions take a `self` parameter (by move).
+I expect we'll be making more render passes, pipeline layouts, and pipelines in later parts, so I'm jumping the gun and putting them in a `Vec` so we don't have to update the struct definition each time we add one. It's a pretty lazy solution but it'll do for now.
 
-So we need a way to move our resources _out_ of a `&mut` reference. One way to do this is to put our resources in an `Option`, and use the `take` method to pull out the contents:
+Unfortunately, we can't implement `Drop` for this struct directly. This is because the signature of `drop` takes a `&mut self` parameter, while the signatures of the `destroy_<something>` functions take a `self` parameter (meaning that they want to take ownership of `self`).
 
-_TODO_: Add a footnote about ManuallyDrop
+So we need a way to move our resources _out_ of a `&mut` reference. One way[^2] to do this is to put our resources in an `Option`, and use the `take` method to pull out the contents:
 
 [source,rust]
 ----
 tag::resource_holder_struct_start[]
+ifeval::[{sourcepart} == 1]
+    // We put the resources in an `Option` so that we can `take` the contents
+    // later and destroy them, without invalidating the memory in this struct.
+endif::[]
     struct ResourceHolder<B: gfx_hal::Backend>(Option<Resources<B>>);
 
     impl<B: gfx_hal::Backend> Drop for ResourceHolder<B> {
         fn drop(&mut self) {
+ifeval::[{sourcepart} == 1]
+            // We are moving the `Resources` out of the struct...
+endif::[]
             let Resources {
                 instance,
-                surface,
+                mut surface,
                 device,
                 command_pool,
-                render_pass,
-                pipeline_layout,
-                pipeline,
-                submission_complete_semaphore,
+                render_passes,
+                pipeline_layouts,
+                pipelines,
                 submission_complete_fence,
+                rendering_complete_semaphore,
 end::resource_holder_struct_start[]
 tag::resource_holder_struct_mid[]
             } = self.0.take().unwrap();
 
-            // Clean up resources
+ifeval::[{sourcepart} == 1]
+            // ... and destroying them individually:
+endif::[]
             unsafe {
 end::resource_holder_struct_mid[]
 tag::resource_holder_struct_end[]
+                device.destroy_semaphore(rendering_complete_semaphore);
                 device.destroy_fence(submission_complete_fence);
-                device.destroy_semaphore(submission_complete_semaphore);
-                device.destroy_graphics_pipeline(pipeline);
-                device.destroy_pipeline_layout(pipeline_layout);
-                device.destroy_render_pass(render_pass);
+                for pipeline in pipelines {
+                    device.destroy_graphics_pipeline(pipeline);
+                }
+                for pipeline_layout in pipeline_layouts {
+                    device.destroy_pipeline_layout(pipeline_layout);
+                }
+                for render_pass in render_passes {
+                    device.destroy_render_pass(render_pass);
+                }
                 device.destroy_command_pool(command_pool);
+                surface.unconfigure_swapchain(&device);
                 instance.destroy_surface(surface);
             }
         }
@@ -459,7 +962,7 @@ tag::resource_holder_struct_end[]
 end::resource_holder_struct_end[]
 ----
 
-Now we can instantiate this struct, which will be moved into the event loop and dropped when the program exits, calling all of our destructors.
+Now we can instantiate this struct, which will be moved into the event loop and dropped when the program exits, calling all of our destructors and cleaning up our resources:
 
 [source,rust]
 ----
@@ -469,18 +972,20 @@ tag::resources_start[]
         surface,
         device,
         command_pool,
-        render_pass,
-        pipeline_layout,
-        pipeline,
-        submission_complete_semaphore,
+        render_passes: vec![render_pass],
+        pipeline_layouts: vec![pipeline_layout],
+        pipelines: vec![pipeline],
         submission_complete_fence,
+        rendering_complete_semaphore,
 end::resources_start[]
 tag::resources_end[]
     }));
 end::resources_end[]
 ----
 
-Our app setup is finally done! Now for our per-frame rendering code.
+The worst is now over! I promise! We're in the home stretch now: it's time to write our per-frame rendering code.
+
+# Rendering
 
 First, let's return to our `RedrawRequested` event and prepare a few things:
 
@@ -488,70 +993,182 @@ First, let's return to our `RedrawRequested` event and prepare a few things:
 ----
             Event::RedrawRequested(_) => {
 tag::rendering_prep[]
-                use gfx_hal::window::PresentationSurface;
-
-                let res = resource_holder.0.as_mut().unwrap();
-
-                let mut viewport = {
-                    use gfx_hal::pso::{Rect, Viewport};
-
-                    Viewport {
-                        rect: Rect {
-                            x: 0,
-                            y: 0,
-                            w: surface_extent.width as i16,
-                            h: surface_extent.height as i16,
-                        },
-                        depth: 0.0..1.0,
-                    }
-                };
+ifeval::[{sourcepart} == 1]
+                // We will need to reference our resources in our rendering
+                // commands.
+                //
+                // Because I'm lazy and we're storing resources in `Vec`s,
+                // we also take references to the contents here to avoid
+                // confusing ourselves with different indices later.
+endif::[]
+                let res: &mut Resources<_> = resource_holder.0.as_mut().unwrap();
+                let render_pass = &res.render_passes[0];
+                let pipeline = &res.pipelines[0];
 end::rendering_prep[]
-            }
+
+                // ...
 ----
 
-Next up, we're going to finally configure the swapchain. Remember the `should_rebuild_swapchain` variable we declared? I hope you initialized it to `true`, because this is how we make sure it's ready for the first frame:
+Our `Resources` struct is holding all of the important things we want to use. The above code gives us easy access to them via the `res` reference. There's no reason it should be `None` outside of the destructor so it should be safe to `unwrap` it.
+
+We'll also pull the pipeline out of the list we stored it in so we can still refer to it by a nice name.
+
+Next, we'll see our first use of the `fence` we created. We're about to reset our command buffer - which would be terrible if the commands hadn't been submitted to the GPU yet. So what we'll do is _wait_ for the fence before we reset it, and later when we submit the command buffer, we'll tell it to _signal_ the fence once it's done. That means that we can't progress past this part until the submission is complete.
+
+(Except we also added a timeout - but that's specifically to avoid hanging in cases where the fence doesn't get signalled for whatever reason.)
+
+Once we're clear, we reset the fence, and we also reset the command pool - which clears the buffers allocated from it:
 
 [source,rust]
 ----
-tag::rebuild_swapchain[]
-                if should_rebuild_swapchain {
+tag::fences[]
+                unsafe {
+                    use gfx_hal::pool::CommandPool;
+
+                    // We refuse to wait more than a second, to avoid hanging.
+                    let render_timeout_ns = 1_000_000_000;
+
+ifeval::[{sourcepart} == 1]
+                    // Graphics commands may execute asynchronously, so to
+                    // ensure we're finished rendering the previous frame
+                    // before starting this new one, we wait here for the
+                    // rendering to signal the `submission_complete_fence` from
+                    // the previous frame.
+                    //
+                    // This may not be the most efficient option - say if you
+                    // wanted to render more than one frame simulatneously
+                    // - but for our example, it simplifies things.
+endif::[]
+                    res.device
+                        .wait_for_fence(&res.submission_complete_fence, render_timeout_ns)
+                        .expect("Out of memory or device lost");
+
+ifeval::[{sourcepart} == 1]
+                    // Once the fence has been signalled, we must reset it
+endif::[]
+                    res.device
+                        .reset_fence(&res.submission_complete_fence)
+                        .expect("Out of memory");
+
+ifeval::[{sourcepart} == 1]
+                    // This clears out the previous frame's command buffer and
+                    // returns it to the pool for use this frame.
+endif::[]
+                    res.command_pool.reset(false);
+                }
+end::fences[]
+----
+
+## Swapchain
+
+Next up, we're going to configure the swapchain. What's this swapchain thing, you ask? Well it's a _chain_ of images that we can render onto and then present to our window. While we're showing one of them on screen, we can render to a different one. Then once we're done rendering, we can _swap_ them.
+
+This is one of the few places where `gfx` departs significantly from the Vulkan API. In Vulkan, you create and manage the swapchain yourself. In `gfx`, the `surface` mostly does it for you. You can read more about the decision behind that https://gfx-rs.github.io/2019/10/01/update.html#new-swapchain-model[here].
+
+All we have to do is re-configure the swapchain whenever it's invalidated (for example, when the application starts, or when the window resizes). Remember the `should_configure_swapchain` variable we declared? I hope you initialized it to `true`, because this is how we make sure it's ready for the first frame:
+
+[source,rust]
+----
+tag::rebuild_swapchain_start[]
+ifeval::[{sourcepart} == 1]
+                // If the window is resized, or the rendering context is
+                // otherwise invalidated, we may need to recreate our whole
+                // swapchain.
+                //
+                // For now, all that entails is calling the
+                // `configure_swapchain` method with the correct config, but
+                // in future parts, we may have to recreate other resources
+                // here.
+endif::[]
+                if should_configure_swapchain {
                     use gfx_hal::window::SwapchainConfig;
 
+end::rebuild_swapchain_start[]
+tag::rebuild_swapchain_configure[]
                     let caps = res.surface.capabilities(&adapter.physical_device);
-                    let mut swap_config =
+
+ifeval::[{sourcepart} == 1]
+                    // We pass our `surface_extent` as a desired default, but
+                    // it may return us a different value, depending on what it
+                    // supports.
+endif::[]
+                    let mut swapchain_config =
                         SwapchainConfig::from_caps(&caps, surface_color_format, surface_extent);
+
+ifeval::[{sourcepart} == 1]
+                    // If our device supports having 3 images in our swapchain,
+                    // then we want to use that.
+                    //
+endif::[]
+                    // This seems to fix some fullscreen slowdown on macOS.
                     if caps.image_count.contains(&3) {
-                        swap_config.image_count = 3;
+                        swapchain_config.image_count = 3;
                     }
 
-                    surface_extent = swap_config.extent;
+ifeval::[{sourcepart} == 1]
+                    // In case the surface returned an extent different from
+                    // the size we requested, we update our value.
+endif::[]
+                    surface_extent = swapchain_config.extent;
 
                     unsafe {
                         res.surface
-                            .configure_swapchain(&res.device, swap_config)
-                            .expect("TODO");
+                            .configure_swapchain(&res.device, swapchain_config)
+                            .expect("Failed to configure swapchain");
                     };
+end::rebuild_swapchain_configure[]
+tag::rebuild_swapchain_end[]
 
-                    viewport.rect.w = surface_extent.width as _;
-                    viewport.rect.h = surface_extent.height as _;
-                    should_rebuild_swapchain = false;
+                    should_configure_swapchain = false;
                 }
-end::rebuild_swapchain[]
+end::rebuild_swapchain_end[]
 ----
+
+First we get the `capabilities` of the surface - which is exactly what it sounds like: the supported swapchain configuration parameters. Then we pass this, the surface format, and the _desired_ extent (physical size of the images in the swapchain) to the `SwapchainConfig::from_caps` method. This returns a `swapchain_config`.
+
+We can modify this config, within the limits of the surface capabilities, then call `configure_swapchain` to update our surface's swapchain. We also store the `surface_extent` that was returned in our swapchain_config - just in case it's different from the desired size that we provided.
+
+The swapchain is now ready. To start rendering, we'll need to acquire an image from it. This will return us an image in the chain that is ready to be used (meaning it is not currently being displayed onscreen):
 
 [source,rust]
 ----
-tag::framebuffer[]
+tag::acquire_image[]
+ifeval::[{sourcepart} == 1]
+                // Our swapchain consists of two or more images. We want to
+                // display one of them on screen, and then render to a
+                // different one so we can swap them out smoothly. The
+                // `acquire_image` method gives us a free one to render on.
+                //
+                // If it fails, there could be an issue with our swapchain, so
+                // we early-out and rebuild it for next frame.
+endif::[]
                 let surface_image = unsafe {
-                    match res.surface.acquire_image(!0) {
+                    // We refuse to wait more than a second, to avoid hanging.
+                    let acquire_timeout_ns = 1_000_000_000;
+
+                    match res.surface.acquire_image(acquire_timeout_ns) {
                         Ok((image, _)) => image,
                         Err(_) => {
-                            should_rebuild_swapchain = true;
+                            should_configure_swapchain = true;
                             return;
                         }
                     }
                 };
+end::acquire_image[]
+----
 
+Next we create a `framebuffer`. This is what actually connects images (like the one we got from our swapchain) to _attachments_ within the render pass (like the one color attachment we specified). The attachments of the render pass is like a set of slots, while a framebuffer is a set of images to fill those slots:
+
+[source,rust]
+----
+tag::framebuffer[]
+ifeval::[{sourcepart} == 1]
+                // The Vulkan API, which `gfx` is based on, doesn't allow you
+                // to render directly to images. Instead, you render to an
+                // abstract framebuffer which represents your render target.
+                // In practice, there may be no difference in our case, but
+                // it's somthing to be aware of.
+endif::[]
                 let framebuffer = unsafe {
                     use std::borrow::Borrow;
 
@@ -559,7 +1176,7 @@ tag::framebuffer[]
 
                     res.device
                         .create_framebuffer(
-                            &res.render_pass,
+                            render_pass,
                             vec![surface_image.borrow()],
                             Extent {
                                 width: surface_extent.width,
@@ -572,23 +1189,37 @@ tag::framebuffer[]
 end::framebuffer[]
 ----
 
+The very last thing to create before we start recording commands is the viewport. This is just a structure defining an area of the window, which can be used to clip (scissor) or scale (viewport) the output of your rendering. We're going to render to the whole window, so we create a viewport the size of the `surface_extent`:
+
 [source,rust]
 ----
-tag::fences[]
-                unsafe {
-                    use gfx_hal::pool::CommandPool;
+tag::create_viewport[]
+ifeval::[{sourcepart} == 1]
+                // A viewport defines the rectangular section of the screen
+                // to draw into. Here we're specifying the whole screen.
+                // This will be used once we start rendering.
+endif::[]
+                let viewport = {
+                    use gfx_hal::pso::{Rect, Viewport};
 
-                    let render_timeout_ns = 1_000_000_000;
-                    res.device
-                        .wait_for_fence(&res.submission_complete_fence, render_timeout_ns)
-                        .expect("TODO");
-                    res.device
-                        .reset_fence(&res.submission_complete_fence)
-                        .expect("TODO");
-                    res.command_pool.reset(false);
-                }
-end::fences[]
+                    Viewport {
+                        rect: Rect {
+                            x: 0,
+                            y: 0,
+                            w: surface_extent.width as i16,
+                            h: surface_extent.height as i16,
+                        },
+                        depth: 0.0..1.0,
+                    }
+                };
+end::create_viewport[]
 ----
+
+## Graphics commands
+
+Everything is ready now - all that's left is to record our commands and submit them.
+
+A command buffer must always start with a begin command, so let's do that. We'll also set the viewport and scissor rect to encompass the whole window:
 
 [source,rust]
 ----
@@ -598,16 +1229,39 @@ tag::commands_start[]
                         ClearColor, ClearValue, CommandBuffer, CommandBufferFlags, SubpassContents,
                     };
 
+end::commands_start[]
+tag::commands_initial_binds[]
+ifeval::[{sourcepart} == 1]
+                    // This is how we start our command buffer. We set a
+                    // flag telling it we're only going to submit it once,
+                    // rather than submit the same commands over and over.
+endif::[]
                     command_buffer.begin_primary(CommandBufferFlags::ONE_TIME_SUBMIT);
 
+ifeval::[{sourcepart} == 1]
+                    // This is how we specify which part of the surface
+                    // we are drawing into. Changing the viewport will stretch
+                    // the resulting image into that rect. Changing the scissor
+                    // will crop it.
+endif::[]
                     command_buffer.set_viewports(0, &[viewport.clone()]);
                     command_buffer.set_scissors(0, &[viewport.rect]);
-                    command_buffer.bind_graphics_pipeline(&res.pipeline);
-end::commands_start[]
+end::commands_initial_binds[]
+----
 
+Next we begin the render pass. We tell it to clear the color attachment to black before rendering:
+
+[source,rust]
+----
 tag::begin_render_pass[]
+ifeval::[{sourcepart} == 1]
+                    // Here we say which render pass we're in. This
+                    // defines which framebuffer (images) we'll draw to, and
+                    // also specifies what color to clear them to first, if
+                    // they have been configured to be cleared.
+endif::[]
                     command_buffer.begin_render_pass(
-                        &res.render_pass,
+                        render_pass,
                         &framebuffer,
                         viewport.rect,
                         &[ClearValue {
@@ -618,15 +1272,64 @@ tag::begin_render_pass[]
                         SubpassContents::Inline,
                     );
 end::begin_render_pass[]
+----
+
+Next we bind our pipeline. Now any triangles we draw will be rendered with the settings and shaders of that pipeline:
+
+[source,rust]
+----
+tag::commands_bind_pipeline[]
+ifeval::[{sourcepart} == 1]
+                    // This sets the pipeline that will be used to draw.
+                    // We can change this whenever we like, but it can be
+                    // inefficient to do so. Regardless, we only have one right
+                    // now.
+endif::[]
+                    command_buffer.bind_graphics_pipeline(pipeline);
+end::commands_bind_pipeline[]
+----
+
+Now the actual draw call itself. We've already bound everything we need. Our shaders even take care of the vertex positions, so all we need to tell the GPU is: "draw vertices `0..3` (0, 1, and 2) as a triangle". That's what this does:
+
+[source,rust]
+----
 tag::draw_call[]
+ifeval::[{sourcepart} == 1]
+                    // This is the command that actually tells the GPU to draw
+                    // some triangles. The `0..3` in the first parameter means
+                    // "draw vertices 0, 1, and 2". (For now, all those numbers
+                    // refer to is the `gl_VertexIndex` parameter in our vertex
+                    // shader.
+                    // The second parameter means "draw instance 0". Ignore
+                    // that for now as we're not using instanced rendering.
+endif::[]
                     command_buffer.draw(0..3, 0..1);
 end::draw_call[]
+----
+
+(You can ignore the `0..1`, that's used for instanced rendering.)
+
+Then finally, we can end the render pass, and our command buffer:
+
+[source,rust]
+----
 tag::commands_end[]
+ifeval::[{sourcepart} == 1]
+                    // Here we finish our only render pass. We could begin
+                    // another, but since we're done, we also close off the
+                    // command buffer, which is now ready to submit to the GPU.
+endif::[]
                     command_buffer.end_render_pass();
                     command_buffer.finish();
                 }
 end::commands_end[]
 ----
+
+## Submission
+
+The commands are ready to submit. We prepare a `Submission`, which simply contains the command buffers to submit, as well as a list of semaphores to signal once rendering is complete.
+
+We submit this to our queue, and tell it to signal the _fence_ once the submission is complete. (Remember this is how we know when we can reset the command buffer.):
 
 [source,rust]
 ----
@@ -634,22 +1337,76 @@ tag::submit[]
                 unsafe {
                     use gfx_hal::queue::{CommandQueue, Submission};
 
+ifeval::[{sourcepart} == 1]
+                    // A `Submission` contains references to the command
+                    // buffers to submit, and also any semaphores used for
+                    // scheduling.
+                    //
+                    // If you wanted to ensure a previous submission was
+                    // complete before starting this one, you could add
+                    // `wait_semaphores`.
+                    //
+                    // In our case though, all we want to do is tell
+                    // `rendering_complete_semaphore` when we're done.
+endif::[]
                     let submission = Submission {
                         command_buffers: vec![&command_buffer],
                         wait_semaphores: None,
-                        signal_semaphores: vec![&res.submission_complete_semaphore],
+                        signal_semaphores: vec![&res.rendering_complete_semaphore],
                     };
-                    queue_group.queues[0].submit(submission, Some(&res.submission_complete_fence));
 
+ifeval::[{sourcepart} == 1]
+                    // Commands must be submitted to an appropriate queue. We
+                    // requested a graphics queue, and so we are submitting
+                    // graphics commands.
+                    //
+                    // We tell the submission to notify
+                    // `submission_complete_fence` when the submission is
+                    // complete, at which point we can reclaim the command
+                    // buffer we used for next frame.
+endif::[]
+                    queue_group.queues[0].submit(submission, Some(&res.submission_complete_fence));
+end::submit[]
+                    // ...
+----
+
+Finally we call `present_surface` and pass our `rendering_complete_semaphore`. This will wait until the semaphore signals and then display the finished image on screen:
+
+[source,rust]
+----
+                    // ...
+tag::present[]
+ifeval::[{sourcepart} == 1]
+                    // Finally, the `present_surface` takes the output of our
+                    // rendering and displays it onscreen. We pass the
+                    // `rendering_complete_semaphore` so that we can be sure
+                    // the image we want to display has been rendered.
+endif::[]
                     let result = queue_group.queues[0].present_surface(
                         &mut res.surface,
                         surface_image,
-                        Some(&res.submission_complete_semaphore),
+                        Some(&res.rendering_complete_semaphore),
                     );
 
-                    res.device.destroy_framebuffer(framebuffer);
+ifeval::[{sourcepart} == 1]
+                    // If presenting failed, it could be a problem with the
+                    // swapchain. For example, if the window was resized, our
+                    // image is no longer the correct dimensions.
+                    //
+                    // In the hopes that we can avoid the same error next
+                    // frame, we'll rebuild the swapchain.
+endif::[]
+                    should_configure_swapchain |= result.is_err();
 
-                    should_rebuild_swapchain |= result.is_err();
+ifeval::[{sourcepart} == 1]
+                    // We created this at the start of the frame
+                    // so we should destroy it too to avoid leaking it.
+endif::[]
+                    res.device.destroy_framebuffer(framebuffer);
                 }
-end::submit[]
+end::present[]
 ----
+
+For good measure, we check if there were any errors here, and if so, we reconfigure the swapchain next frame. It's not exactly scientific, but it will hopefully pave over any temporary unforseen errors with the graphics context. We also clear up the framebuffer we created.
+
+Now, at long last, after about 400 lines of code, our application will finally render something. Ready for it? Here it is:

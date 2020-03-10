@@ -1,0 +1,6 @@
+:doctype: inline
+:outfilesuffix: .toml
+
+++++
+include::../part-1-triangle.adoc[tag=cargo_toml]
+++++

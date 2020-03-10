@@ -1,0 +1,6 @@
+#!/bin/bash
+
+set -e
+
+cargo build --bins
+(cd src/bin && for filename in $(ls *.rs); do ../../target/debug/${filename%.*}; done)

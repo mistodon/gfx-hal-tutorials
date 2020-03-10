@@ -1,6 +1,0 @@
-:doctype: inline
-:outfilesuffix:
-++++
-include::../part-3-vertex-buffers.adoc[tag=vertex_shader]
-++++
-

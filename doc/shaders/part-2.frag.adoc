@@ -1,5 +1,0 @@
-:doctype: inline
-:outfilesuffix:
-++++
-include::../part-2-push-constants.adoc[tag=fragment_shader]
-++++

@@ -9,6 +9,7 @@ license = "CC0-1.0"
 bincode = "~1.2.1"
 gfx-hal = "=0.4.1"
 glsl-to-spirv = "=0.1.7"
+image = "~0.22.4"
 serde = { version = "~1.0.104", features = ["derive"] }
 winit = "~0.20.0"
 
