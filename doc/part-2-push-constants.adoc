@@ -1,0 +1,278 @@
+:is_blog:
+
+[source,rust]
+----
+tag::app_name[]
+    const APP_NAME: &'static str = "Part 2: Push constants";
+end::app_name[]
+----
+
+Push constants allow us to dynamically change how things are drawn, even within a single command buffer. In my view, they're the simplest way to do so - they don't require any memory allocation, synchronization, or really much setup at all.
+
+The first thing to do is to update our shaders so that they can make use of push constants. We're going to be drawing triangles, just like the one from Part 1. But this time, we want to be able to vary the _color_, _position_, and _scale_ of each one:
+
+[source,glsl]
+----
+// shaders/part-2.vert
+tag::vertex_shader[]
+#version 450
+#extension GL_ARB_separate_shader_objects : enable
+
+layout(push_constant) uniform PushConstants {
+    vec4 color;
+    vec2 pos;
+    vec2 scale;
+} push_constants;
+
+layout(location = 0) out vec4 vertex_color;
+
+void main() {
+    vec2 position;
+    if (gl_VertexIndex == 0) {
+        position = vec2(0.0, -0.5);
+    } else if (gl_VertexIndex == 1) {
+        position = vec2(-0.5, 0.5);
+    } else if (gl_VertexIndex == 2) {
+        position = vec2(0.5, 0.5);
+    }
+
+    vec2 pos = position * push_constants.scale;
+    vertex_color = push_constants.color;
+    gl_Position = vec4((pos + push_constants.pos), 0.0, 1.0);
+}
+end::vertex_shader[]
+----
+
+You can see we included a struct of the three properties we want to change. The special `layout(push_constant)` tells the shader to look in the command buffer's push constants for that data.
+
+We also added a `vertex_color` output, which the fragment shader will just pass straight through:
+
+[source,glsl]
+----
+// shaders/part-2.frag
+tag::fragment_shader[]
+#version 450
+#extension GL_ARB_separate_shader_objects : enable
+
+layout(location = 0) in vec4 vertex_color;
+
+layout(location = 0) out vec4 fragment_color;
+
+void main() {
+    fragment_color = vertex_color;
+}
+end::fragment_shader[]
+----
+
+Last thing to do here is to make sure our pipeline is loading the new shaders. Change the filenames of the shaders where we create the pipeline:
+
+[source,rust]
+----
+    // ...
+
+tag::shaders[]
+    let vertex_shader = include_str!("shaders/part-2.vert");
+    let fragment_shader = include_str!("shaders/part-2.frag");
+end::shaders[]
+
+    // ...
+----
+
+Now we've seen how to use the push constant data within a shader, but that doesn't really explain what they _are_. In essence, push constants are just a small number of bytes (at least 128) that you can do whatever you like with.
+
+When we defined the `PushConstants` struct in our shader, we were just asking it to interpret some of those bytes as a struct. If we do the same in our Rust code, we make it easier to send that data:
+
+[source,rust]
+----
+tag::push_constants_struct[]
+ifeval::[{sourcepart} == 2]
+/// A struct representing the data that we want to supply in push constants.
+///
+/// The `repr(C)` attribute is required to ensure that the memory layout is
+/// what we expect. Without it, no specific layout is guaranteed.
+endif::[]
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+struct PushConstants {
+    color: [f32; 4],
+    pos: [f32; 2],
+    scale: [f32; 2],
+}
+end::push_constants_struct[]
+----
+
+Note the `repr\(C)` attribute which tells the compiler to lay out this struct in memory the way C would. This (as far as I'm aware) is also how structs are laid out in shader code. By ensuring the layouts are the same, we can easily copy the Rust struct straight into push constants without worrying about individual fields.
+
+Next we have to make a small change to our pipeline layout to enable push constants:
+
+[source,rust]
+----
+tag::pipeline_layout[]
+    let pipeline_layout = unsafe {
+        use gfx_hal::pso::ShaderStageFlags;
+
+        let push_constant_bytes = std::mem::size_of::<PushConstants>() as u32;
+
+ifeval::[{sourcepart} == 2]
+        // The second slice passed here defines the ranges of push constants
+        // available to each shader stage. In this example, we're going to give
+        // one `PushConstants` struct worth of bytes to the vertex shader.
+        //
+        // Out data _could_ be offset, which is why we pass a range of bytes,
+        // but here we can start at zero since there's no data before our
+        // struct.
+endif::[]
+        device
+            .create_pipeline_layout(&[], &[(ShaderStageFlags::VERTEX, 0..push_constant_bytes)])
+            .expect("Out of memory")
+    };
+end::pipeline_layout[]
+----
+
+For each draw call, we're going to supply one of our `PushConstants` structs. However, the GPU doesn't know anything about structs - all it knows is that we're going to give it some bytes. What it wants to know is _which_ of those bytes it should use for each specific shader stage. In our case, we only care about the vertex shader, and the number of bytes is however big the struct is.
+
+As a final touch before our main loop, let's also give ourselves a time parameter, so we can animate things.
+
+[source,rust]
+----
+tag::start_time[]
+ifeval::[{sourcepart} == 2]
+    // We'll use the elapsed time to drive some animations later on.
+endif::[]
+ifdef::is_blog[]
+    // We'll use the elapsed time to drive some animations later on.
+endif::is_blog[]
+    let start_time = std::time::Instant::now();
+end::start_time[]
+
+    event_loop.run(move |event, _, control_flow| {
+        // ...
+----
+
+Now we can move on to the render loop. You'll see later that we're going to need to use the `pipeline_layout`, so let's take a reference to it at the start of the loop:
+
+[source,rust]
+----
+            Event::RedrawRequested(_) => {
+tag::rendering_prep[]
+                let res: &mut Resources<_> = &mut resource_holder.0;
+                let render_pass = &res.render_passes[0];
+                let pipeline_layout = &res.pipeline_layouts[0];
+                let pipeline = &res.pipelines[0];
+end::rendering_prep[]
+
+                // ...
+----
+
+Next we'll create some structs representing each triangle we want to draw. We can vary the position, color, and scale of each one, and we can use `start_time.elapsed()` to vary some of those properties over time - allowing us to animate them:
+
+[source,rust]
+----
+tag::push_constant_data[]
+                // This `anim` will be a number that oscillates smoothly
+                // between 0.0 and 1.0.
+                let anim = start_time.elapsed().as_secs_f32().sin() * 0.5 + 0.5;
+
+                let small = [0.33, 0.33];
+
+ifeval::[{sourcepart} == 2]
+                // Each `PushConstants` struct in this slice represents the
+                // color, position, and scale of a triangle. This allows us to
+                // efficiently draw the same thing multiple times with varying
+                // parameters.
+endif::[]
+                let triangles = &[
+                    // Red triangle
+                    PushConstants {
+                        color: [1.0, 0.0, 0.0, 1.0],
+                        pos: [-0.5, -0.5],
+                        scale: small,
+                    },
+                    // Green triangle
+                    PushConstants {
+                        color: [0.0, 1.0, 0.0, 1.0],
+                        pos: [0.0, -0.5],
+                        scale: small,
+                    },
+                    // Blue triangle
+                    PushConstants {
+                        color: [0.0, 0.0, 1.0, 1.0],
+                        pos: [0.5, -0.5],
+                        scale: small,
+                    },
+                    // Blue <-> cyan animated triangle
+                    PushConstants {
+                        color: [0.0, anim, 1.0, 1.0],
+                        pos: [-0.5, 0.5],
+                        scale: small,
+                    },
+                    // Down <-> up animated triangle
+                    PushConstants {
+                        color: [1.0, 1.0, 1.0, 1.0],
+                        pos: [0.0, 0.5 - anim * 0.5],
+                        scale: small,
+                    },
+                    // Small <-> big animated triangle
+                    PushConstants {
+                        color: [1.0, 1.0, 1.0, 1.0],
+                        pos: [0.5, 0.5],
+                        scale: [0.33 + anim * 0.33, 0.33 + anim * 0.33],
+                    },
+                ];
+end::push_constant_data[]
+----
+
+Now before we can actually use that data to draw, we have to pass it to the GPU as a sequence of bytes. They have to be 32-bit aligned, and so gfx-hal actually requires them to be passed as a sequence of `u32` values. So, let's write a function to convert our `PushConstants` struct into that format:
+
+[source,rust]
+----
+tag::push_constant_bytes_fn[]
+                /// Returns a view of a struct as a slice of `u32`s.
+ifndef::is_blog[]
+                ///
+                /// Note that this assumes the struct divides evenly into
+                /// 4-byte chunks. If the contents are all `f32`s, which they
+                /// often are, then this will always be the case.
+endif::is_blog[]
+                unsafe fn push_constant_bytes<T>(push_constants: &T) -> &[u32] {
+                    let size_in_bytes = std::mem::size_of::<T>();
+                    let size_in_u32s = size_in_bytes / std::mem::size_of::<u32>();
+                    let start_ptr = push_constants as *const T as *const u32;
+                    std::slice::from_raw_parts(start_ptr, size_in_u32s)
+                }
+end::push_constant_bytes_fn[]
+----
+
+Now finally, we can make use of our push constants to render some things. So let's replace our old draw call:
+
+[source,rust]
+----
+include::part-1-triangle.adoc[tag=draw_call]
+----
+
+— with something more interesting. We'll loop over the triangles we defined with `PushConstants` structs. For each one, we'll first write the push constant data to the command buffer, and then write the draw command:
+
+[source,rust]
+----
+tag::draw_call[]
+                    for triangle in triangles {
+                        use gfx_hal::pso::ShaderStageFlags;
+
+ifeval::[{sourcepart} == 2]
+                        // This encodes the actual push constants themselves
+                        // into the command buffer. The vertex shader will be
+                        // able to access these properties.
+endif::[]
+                        command_buffer.push_graphics_constants(
+                            pipeline_layout,
+                            ShaderStageFlags::VERTEX,
+                            0,
+                            push_constant_bytes(triangle),
+                        );
+
+                        command_buffer.draw(0..3, 0..1);
+                    }
+end::draw_call[]
+----
+
+If all is well, when you run the application, you should see six triangles like this:

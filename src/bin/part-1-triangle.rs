@@ -1,4 +1,6 @@
 fn main() {
+    use std::mem::ManuallyDrop;
+
     use gfx_hal::{
         device::Device,
         window::{Extent2D, PresentationSurface, Surface},
@@ -319,6 +321,7 @@ fn main() {
             geometry: None,
             fragment: Some(fs_entry),
         };
+
         // Here is where we configure our pipeline. The `new` function sets the
         // required properties, after which we can add additional sections to
         // define what kind of render targets/attachments and vertex buffers it
@@ -399,27 +402,27 @@ fn main() {
         rendering_complete_semaphore: B::Semaphore,
     }
 
-    // We put the resources in an `Option` so that we can `take` the contents
-    // later and destroy them, without invalidating the memory in this struct.
-    struct ResourceHolder<B: gfx_hal::Backend>(Option<Resources<B>>);
+    // We put the resources in an `ManuallyDrop` so that we can `take` the
+    // contents later and destroy them.
+    struct ResourceHolder<B: gfx_hal::Backend>(ManuallyDrop<Resources<B>>);
 
     impl<B: gfx_hal::Backend> Drop for ResourceHolder<B> {
         fn drop(&mut self) {
-            // We are moving the `Resources` out of the struct...
-            let Resources {
-                instance,
-                mut surface,
-                device,
-                command_pool,
-                render_passes,
-                pipeline_layouts,
-                pipelines,
-                submission_complete_fence,
-                rendering_complete_semaphore,
-            } = self.0.take().unwrap();
-
-            // ... and destroying them individually:
             unsafe {
+                // We are moving the `Resources` out of the struct...
+                let Resources {
+                    instance,
+                    mut surface,
+                    device,
+                    command_pool,
+                    render_passes,
+                    pipeline_layouts,
+                    pipelines,
+                    submission_complete_fence,
+                    rendering_complete_semaphore,
+                } = ManuallyDrop::take(&mut self.0);
+
+                // ... and destroying them individually:
                 device.destroy_semaphore(rendering_complete_semaphore);
                 device.destroy_fence(submission_complete_fence);
                 for pipeline in pipelines {
@@ -438,17 +441,18 @@ fn main() {
         }
     }
 
-    let mut resource_holder: ResourceHolder<backend::Backend> = ResourceHolder(Some(Resources {
-        instance,
-        surface,
-        device,
-        command_pool,
-        render_passes: vec![render_pass],
-        pipeline_layouts: vec![pipeline_layout],
-        pipelines: vec![pipeline],
-        submission_complete_fence,
-        rendering_complete_semaphore,
-    }));
+    let mut resource_holder: ResourceHolder<backend::Backend> =
+        ResourceHolder(ManuallyDrop::new(Resources {
+            instance,
+            surface,
+            device,
+            command_pool,
+            render_passes: vec![render_pass],
+            pipeline_layouts: vec![pipeline_layout],
+            pipelines: vec![pipeline],
+            submission_complete_fence,
+            rendering_complete_semaphore,
+        }));
 
     // This will be very important later! It must be initialized to `true` so
     // that we rebuild the swapchain on the first frame.
@@ -499,7 +503,7 @@ fn main() {
                 // Because I'm lazy and we're storing resources in `Vec`s,
                 // we also take references to the contents here to avoid
                 // confusing ourselves with different indices later.
-                let res: &mut Resources<_> = resource_holder.0.as_mut().unwrap();
+                let res: &mut Resources<_> = &mut resource_holder.0;
                 let render_pass = &res.render_passes[0];
                 let pipeline = &res.pipelines[0];
 
@@ -679,6 +683,7 @@ fn main() {
                     // The second parameter means "draw instance 0". Ignore
                     // that for now as we're not using instanced rendering.
                     command_buffer.draw(0..3, 0..1);
+
                     // Here we finish our only render pass. We could begin
                     // another, but since we're done, we also close off the
                     // command buffer, which is now ready to submit to the GPU.

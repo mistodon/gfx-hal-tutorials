@@ -15,19 +15,22 @@ tag::vertex_shader[]
 #version 450
 #extension GL_ARB_separate_shader_objects : enable
 
-vec2 positions[3] = vec2[](
-    vec2(0.0, -0.5),
-    vec2(-0.5, 0.5),
-    vec2(0.5, 0.5)
-);
-
 void main() {
-    gl_Position = vec4(positions[gl_VertexIndex], 0.0, 1.0);
+    vec2 position;
+    if (gl_VertexIndex == 0) {
+        position = vec2(0.0, -0.5);
+    } else if (gl_VertexIndex == 1) {
+        position = vec2(-0.5, 0.5);
+    } else if (gl_VertexIndex == 2) {
+        position = vec2(0.5, 0.5);
+    }
+
+    gl_Position = vec4(position, 0.0, 1.0);
 }
 end::vertex_shader[]
 ----
 
-It's so simple that it doesn't even have any inputs. Instead we define the triangle vertices as a constant array of three positions, and use the `gl_VertexIndex` built-in to index that array.[^1]
+It's so simple that it doesn't even have any inputs. Instead we hardcode the three vertices of the triangle, and use the `gl_VertexIndex` build-in to set the position based on which vertex we're on.[^1]
 
 Next is our fragment shader:
 
@@ -67,7 +70,7 @@ license = "CC0-1.0"
 
 [dependencies]
 bincode = "~1.2.1"
-gfx-hal = "=0.4.1"
+gfx-hal = "=0.5.0"
 glsl-to-spirv = "=0.1.7"
 image = "~0.22.4"
 serde = { version = "~1.0.104", features = ["derive"] }
@@ -75,15 +78,15 @@ winit = "~0.20.0"
 
 [target.'cfg(target_os = "macos")'.dependencies.backend]
 package = "gfx-backend-metal"
-version = "=0.4.2"
+version = "=0.5.1"
 
 [target.'cfg(windows)'.dependencies.backend]
 package = "gfx-backend-dx12"
-version = "=0.4.3"
+version = "=0.5.0"
 
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies.backend]
 package = "gfx-backend-vulkan"
-version = "=0.4.0"
+version = "=0.5.1"
 end::cargo_toml[]
 ----
 
@@ -93,7 +96,7 @@ There are a few dependencies above that aren't used by this tutorial, but will b
 - The `gfx-hal` crate which defines the traits that the backends implement.
 - And the `gfx-backend-*` crates, each representing an available graphics backend.
 
-The bizarre `[target.'cfg(...)'.dependencies.backend]` syntax allows us to easily be generic across different operating systems. What this does is change the contents of the `backend` crate depending on the OS. So `gfx-backend-metal` for `macos`, and so on.
+The bizarre `[target.'cfg(...)'.dependencies.backend]` syntax allows us to easily be generic across different operating systems. What this does is change the contents of the `backend` crate depending on the OS. So it points to `gfx-backend-metal` for `macos`, and so on.
 
 Our code can just use the magic `backend` crate and should work the same on all of these platforms.
 
@@ -103,7 +106,7 @@ The next thing to do is start putting code in our `main.rs` to initialize our gr
 
 One of the nice things (from a performance and correctness standpoint) about `gfx` is that a lot of the work is frontloaded. However, that means there's a lot of initialization to do - lots of selecting, creating, and configuring resources. But by contrast, when the initialization is done, the actual rendering is very simple. It's basically just filling command buffers with commands and submitting them to a command queue.
 
-So here's a quick summary of the initialization that's required before that:
+So here's a quick summary of the initialization that's required to do that. We will need:
 
 * A **window** to display our rendered image.
 * A backend **instance** to access the graphics API. This gives us access to:
@@ -127,6 +130,8 @@ The very first thing for us to do is define a `main` function:
 // src/main.rs (or other binary)
 tag::main_start[]
 fn main() {
+    use std::mem::ManuallyDrop;
+
     use gfx_hal::{
         device::Device,
         window::{Extent2D, PresentationSurface, Surface},
@@ -163,7 +168,7 @@ ____
 High-DPI displays, to avoid having unusably small UI elements, pretend to have a smaller size than they actually do. For example, a screen 2048 _physical_ pixels wide may report a _logical_ size of 1024, along with a _scale factor_ of 2. This means that a 1024 pixel window will fill the whole screen, because the OS will scale it up by 2 under the hood to cover all 2048 pixels. It also means that on my other, more ancient 1024 pixel monitor with a scale factor of just 1, the window will appear to be the same size, without me having to configure the window differently.
 ____
 
-So _physical size_ represents real life pixels, and vary a lot across different devices, while _logical size_ is an abstraction representing a smaller size which is more consistent between devices.
+So _physical size_ represents real life pixels, and varies a lot across different devices, while _logical size_ is an abstraction representing a smaller size which is more consistent between devices.
 
 [source,rust]
 ----
@@ -708,6 +713,7 @@ Now let's start filling in the body of this function. The first thing we want to
 
 [source,rust]
 ----
+    // fn make_pipeline(...) {
 tag::make_pipeline_fn_shader_entries[]
         let vertex_shader_module = device
             .create_shader_module(&compile_shader(vertex_shader, ShaderType::Vertex))
@@ -750,6 +756,7 @@ endif::[]
             geometry: None,
             fragment: Some(fs_entry),
         };
+
 end::make_pipeline_fn_shader_entries[]
 ----
 
@@ -800,7 +807,7 @@ endif::[]
 end::make_pipeline_fn_desc[]
 ----
 
-As mentioned, pipelines can get fairly complex. We use the `new` function to create a bare-bones pipeline, defining the shaders to use, the primitive to render, that we wish to cull back-faces. We also supply our pipeline layout and render pass. Now we can extend this configuration by modifying other fields.
+As mentioned, pipelines can get fairly complex. We use the `new` function to create a bare-bones pipeline, defining the shaders to use, the primitive to render, and that we wish to cull back-faces. We also supply our pipeline layout and render pass. Now we can extend this configuration by modifying other fields.
 
 The only thing we add for now is a color target. This `ColorBlendDesc` is now the only target in the list, and therefore has index `0`. This means that it's telling us how to write color to color attachment `0` in the render pass. With `ColorMask::ALL` we say we're writing to all color channels, and with `BlendState::ALPHA` we say we want alpha blending where pixels overlap.
 
@@ -906,40 +913,40 @@ I expect we'll be making more render passes, pipeline layouts, and pipelines in 
 
 Unfortunately, we can't implement `Drop` for this struct directly. This is because the signature of `drop` takes a `&mut self` parameter, while the signatures of the `destroy_<something>` functions take a `self` parameter (meaning that they want to take ownership of `self`).
 
-So we need a way to move our resources _out_ of a `&mut` reference. One way[^2] to do this is to put our resources in an `Option`, and use the `take` method to pull out the contents:
+So we need a way to move our resources _out_ of a `&mut` reference. One way to do this is to put our resources in a `ManuallyDrop`, and use the `take` method to pull out the contents:
 
 [source,rust]
 ----
 tag::resource_holder_struct_start[]
 ifeval::[{sourcepart} == 1]
-    // We put the resources in an `Option` so that we can `take` the contents
-    // later and destroy them, without invalidating the memory in this struct.
+    // We put the resources in an `ManuallyDrop` so that we can `take` the
+    // contents later and destroy them.
 endif::[]
-    struct ResourceHolder<B: gfx_hal::Backend>(Option<Resources<B>>);
+    struct ResourceHolder<B: gfx_hal::Backend>(ManuallyDrop<Resources<B>>);
 
     impl<B: gfx_hal::Backend> Drop for ResourceHolder<B> {
         fn drop(&mut self) {
+            unsafe {
 ifeval::[{sourcepart} == 1]
-            // We are moving the `Resources` out of the struct...
+                // We are moving the `Resources` out of the struct...
 endif::[]
-            let Resources {
-                instance,
-                mut surface,
-                device,
-                command_pool,
-                render_passes,
-                pipeline_layouts,
-                pipelines,
-                submission_complete_fence,
-                rendering_complete_semaphore,
+                let Resources {
+                    instance,
+                    mut surface,
+                    device,
+                    command_pool,
+                    render_passes,
+                    pipeline_layouts,
+                    pipelines,
+                    submission_complete_fence,
+                    rendering_complete_semaphore,
 end::resource_holder_struct_start[]
 tag::resource_holder_struct_mid[]
-            } = self.0.take().unwrap();
+                } = ManuallyDrop::take(&mut self.0);
 
 ifeval::[{sourcepart} == 1]
-            // ... and destroying them individually:
+                // ... and destroying them individually:
 endif::[]
-            unsafe {
 end::resource_holder_struct_mid[]
 tag::resource_holder_struct_end[]
                 device.destroy_semaphore(rendering_complete_semaphore);
@@ -967,19 +974,20 @@ Now we can instantiate this struct, which will be moved into the event loop and 
 [source,rust]
 ----
 tag::resources_start[]
-    let mut resource_holder: ResourceHolder<backend::Backend> = ResourceHolder(Some(Resources {
-        instance,
-        surface,
-        device,
-        command_pool,
-        render_passes: vec![render_pass],
-        pipeline_layouts: vec![pipeline_layout],
-        pipelines: vec![pipeline],
-        submission_complete_fence,
-        rendering_complete_semaphore,
+    let mut resource_holder: ResourceHolder<backend::Backend> =
+        ResourceHolder(ManuallyDrop::new(Resources {
+            instance,
+            surface,
+            device,
+            command_pool,
+            render_passes: vec![render_pass],
+            pipeline_layouts: vec![pipeline_layout],
+            pipelines: vec![pipeline],
+            submission_complete_fence,
+            rendering_complete_semaphore,
 end::resources_start[]
 tag::resources_end[]
-    }));
+        }));
 end::resources_end[]
 ----
 
@@ -1001,7 +1009,7 @@ ifeval::[{sourcepart} == 1]
                 // we also take references to the contents here to avoid
                 // confusing ourselves with different indices later.
 endif::[]
-                let res: &mut Resources<_> = resource_holder.0.as_mut().unwrap();
+                let res: &mut Resources<_> = &mut resource_holder.0;
                 let render_pass = &res.render_passes[0];
                 let pipeline = &res.pipelines[0];
 end::rendering_prep[]
@@ -1009,9 +1017,9 @@ end::rendering_prep[]
                 // ...
 ----
 
-Our `Resources` struct is holding all of the important things we want to use. The above code gives us easy access to them via the `res` reference. There's no reason it should be `None` outside of the destructor so it should be safe to `unwrap` it.
+Our `Resources` struct is holding all of the important things we want to use. The above code gives us easy access to them via the `res` reference.
 
-We'll also pull the pipeline out of the list we stored it in so we can still refer to it by a nice name.
+We'll also pull the render pass and pipeline out of the lists we stored them in so we can still refer to it by a nice name.
 
 Next, we'll see our first use of the `fence` we created. We're about to reset our command buffer - which would be terrible if the commands hadn't been submitted to the GPU yet. So what we'll do is _wait_ for the fence before we reset it, and later when we submit the command buffer, we'll tell it to _signal_ the fence once it's done. That means that we can't progress past this part until the submission is complete.
 
@@ -1126,7 +1134,7 @@ end::rebuild_swapchain_end[]
 
 First we get the `capabilities` of the surface - which is exactly what it sounds like: the supported swapchain configuration parameters. Then we pass this, the surface format, and the _desired_ extent (physical size of the images in the swapchain) to the `SwapchainConfig::from_caps` method. This returns a `swapchain_config`.
 
-We can modify this config, within the limits of the surface capabilities, then call `configure_swapchain` to update our surface's swapchain. We also store the `surface_extent` that was returned in our swapchain_config - just in case it's different from the desired size that we provided.
+We can modify this config, within the limits of the surface capabilities, then call `configure_swapchain` to update our surface's swapchain. We also store the `surface_extent` that was returned in our `swapchain_config` - just in case it's different from the desired size that we provided.
 
 The swapchain is now ready. To start rendering, we'll need to acquire an image from it. This will return us an image in the chain that is ready to be used (meaning it is not currently being displayed onscreen):
 
@@ -1304,6 +1312,7 @@ ifeval::[{sourcepart} == 1]
                     // that for now as we're not using instanced rendering.
 endif::[]
                     command_buffer.draw(0..3, 0..1);
+
 end::draw_call[]
 ----
 

@@ -2,3 +2,4 @@ assets/gen/*
 /target
 ci/gfx-master/target
 **/*.rs.bk
+/src/bin/scratch.rs
