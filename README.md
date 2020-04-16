@@ -11,6 +11,7 @@ If you just want to see the examples in action, you can simply clone the repo an
 ```bash
 $ cargo run --bin part-1-triangle
 $ cargo run --bin part-2-push-constants
+$ cargo run --bin part-3-vertex-buffers
 ```
 
 ## License

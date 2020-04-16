@@ -1,0 +1,550 @@
+:is_blog:
+
+[source,rust]
+----
+tag::app_name[]
+    const APP_NAME: &'static str = "Part 3: Vertex buffers";
+end::app_name[]
+----
+
+As mentioned, we're going to be drawing a teapot today. Teapots - as a rule - tend to have tens of thousands of vertices (instead of just three) so it would be a little prohibitive to try and hard-code them in our vertex shader, the way we did before.
+
+Instead what we're going to do is efficiently store those vertices in a buffer, and then pass them as _inputs_ to the shader via vertex attributes. We will naturally have a `position` input, but our teapot also contains a vertex `normal`, so we'll include that too:
+
+[source,glsl]
+----
+// shaders/part-3.vert
+tag::vertex_shader[]
+#version 450
+#extension GL_ARB_separate_shader_objects : enable
+
+layout(location = 0) in vec3 position;
+layout(location = 1) in vec3 normal;
+
+layout(push_constant) uniform PushConstants {
+    mat4 transform;
+} push_constants;
+
+layout(location = 0) out vec4 vertex_color;
+
+void main() {
+    vertex_color = vec4(abs(normal), 1.0);
+    gl_Position = push_constants.transform * vec4(position, 1.0);
+}
+end::vertex_shader[]
+----
+
+A few things to note: first the `location` of the attribute, secondly that we're passing the absolute value of the `normal` as the vertex color, and lastly that we've changed our push constants to contain a single matrix.
+
+The `location` is - for our purposes - just an ID number. We'll use them later when we're updating our pipeline. As for the vertex color - this is just a nice way to visualize normals. We don't _need_ to do this, but it's more interesting than a flat color. Finally the `transform` matrix replaces the position and scale parameters we had before. Now we can apply an arbitrary 3D transformation to our vertices, which we'll use to orient the teapot.
+
+Happily, the fragment shader is unchanged from last time:
+
+[source,glsl]
+----
+// shaders/part-3.frag
+tag::fragment_shader[]
+#version 450
+#extension GL_ARB_separate_shader_objects : enable
+
+layout(location = 0) in vec4 vertex_color;
+
+layout(location = 0) out vec4 fragment_color;
+
+void main() {
+    fragment_color = vertex_color;
+}
+end::fragment_shader[]
+----
+
+And again, we now update the filenames of the shaders we're loading:
+
+[source,rust]
+----
+    // ...
+
+tag::shaders[]
+    let vertex_shader = include_str!("shaders/part-3.vert");
+    let fragment_shader = include_str!("shaders/part-3.frag");
+end::shaders[]
+
+    // ...
+----
+
+Onto the Rust code.
+
+Our goal is to create a vertex buffer, but first let's find some data to put in it. In https://github.com/mistodon/gfx-hal-tutorials/tree/master/assets[the repo] is a mesh of the Utah teapot, serialized with the `bincode` crate. Really it's just a `Vec` of vertices efficiently packed into a binary file. To deserialize it, we'll need to define a compatible `Vertex` struct:
+
+[source,rust]
+----
+tag::vertex_struct[]
+ifeval::[{sourcepart} == 3]
+/// A struct representing a single vertex in 3D space with a normal.
+///
+/// The `repr(C)` attribute is required to ensure that the memory layout is
+/// what we expect. Without it, no specific layout is guaranteed.
+endif::[]
+#[derive(serde::Deserialize)]
+#[repr(C)]
+struct Vertex {
+    position: [f32; 3],
+    normal: [f32; 3],
+}
+end::vertex_struct[]
+----
+
+Once we have this struct defined, we can load and deserialize the mesh:
+
+[source,rust]
+----
+tag::mesh_deserialize[]
+    // The `teapot_mesh.bin` is just a `Vec<Vertex>` that was serialized
+    // using the `bincode` crate. So we can deserialize it directly.
+    let binary_mesh_data = include_bytes!("../../assets/teapot_mesh.bin");
+    let mesh: Vec<Vertex> =
+        bincode::deserialize(binary_mesh_data).expect("Failed to deserialize mesh");
+end::mesh_deserialize[]
+----
+
+(Note of course that we do this _outside_ our render loop - we don't have to do this every frame.)
+
+Now to create the buffer itself. We're going to have to make more buffers in future, so let's create a function for this. You'll thank me later, I promise:
+
+[source,rust]
+----
+tag::make_buffer_fn_start[]
+    /// Create an empty buffer with the given size and properties.
+ifndef::is_blog[]
+    ///
+    /// Buffers can be used for various things. The `usage` parameter defines
+    /// how the buffer should be treated (vertex buffer, index buffer, etc).
+    /// The `properties` specify the kind of memory that should be used to
+    /// store this buffer (CPU visible, device local, etc).
+endif::is_blog[]
+    unsafe fn make_buffer<B: gfx_hal::Backend>(
+        device: &B::Device,
+        physical_device: &B::PhysicalDevice,
+        buffer_len: usize,
+        usage: gfx_hal::buffer::Usage,
+        properties: gfx_hal::memory::Properties,
+    ) -> (B::Memory, B::Buffer) {
+end::make_buffer_fn_start[]
+        todo!()
+tag::make_buffer_fn_end[]
+    }
+end::make_buffer_fn_end[]
+----
+
+This function is going to give us an empty buffer - but we have to specify the _kind_ of buffer we want, not just the size of it. The `usage` parameter specifies how we plan to _use_ the buffer, while the `properties` define what kind of memory to store it in (which is largely a matter of optimization). We'll see those parameters in more detail when we call the function.
+
+But before that, let's fill in the function body:
+
+[source,rust]
+----
+    // fn make_buffer(...) {
+tag::make_buffer_fn_body[]
+        use gfx_hal::{adapter::PhysicalDevice, MemoryTypeId};
+
+ifeval::[{sourcepart} == 3]
+        // This creates a handle to a buffer. The `buffer_len` is in bytes,
+        // and the usage states what kind of buffer it is. For this part,
+        // we're making a vertex buffer, so you'll see later that we pass
+        // `Usage::VERTEX` for this parameter.
+endif::[]
+        let mut buffer = device
+            .create_buffer(buffer_len as u64, usage)
+            .expect("Failed to create buffer");
+
+ifeval::[{sourcepart} == 3]
+        // The device may have its own requirements for storing a buffer of
+        // this certain size and properties. It returns a `Requirements` struct
+        // from which we'll use two fields: `size` and `type_mask`.
+        //
+        // The `size` field should be pretty straightforward - it may differ
+        // from `buffer_len` if there are padding/alignment requirements.
+        //
+        // The `type_mask` is a bitmask representing which memory types are
+        // compatible.
+endif::[]
+        let req = device.get_buffer_requirements(&buffer);
+
+ifeval::[{sourcepart} == 3]
+        // This list of `memory_type` corresponds to the list represented by
+        // the `type_mask` above. If the nth bit in the mask is `1`, then the
+        // nth memory type in this list is supported.
+endif::[]
+        let memory_types = physical_device.memory_properties().memory_types;
+
+ifeval::[{sourcepart} == 3]
+        // We iterate over all the memory types and select the first one that
+        // is both supported (e.g. in the `type_mask`), and supports the
+        // `properties` we requested. In our case this is `CPU_VISIBLE` as
+        // we'll see later.
+endif::[]
+        let memory_type = memory_types
+            .iter()
+            .enumerate()
+            .find(|(id, mem_type)| {
+                let type_supported = req.type_mask & (1_u64 << id) != 0;
+                type_supported && mem_type.properties.contains(properties)
+            })
+            .map(|(id, _ty)| MemoryTypeId(id))
+            .expect("No compatible memory type available");
+
+ifeval::[{sourcepart} == 3]
+        // Now that we know the size and type of the memory to allocate, we can
+        // go ahead and do so.
+endif::[]
+        let buffer_memory = device
+            .allocate_memory(memory_type, req.size)
+            .expect("Failed to allocate buffer memory");
+
+ifeval::[{sourcepart} == 3]
+        // Now that we have memory to back our buffer, we can bind that buffer
+        // handle to the memory. That buffer now has some actual storage
+        // associated with it.
+endif::[]
+        device
+            .bind_buffer_memory(&buffer_memory, 0, &mut buffer)
+            .expect("Failed to bind buffer memory");
+
+        (buffer_memory, buffer)
+end::make_buffer_fn_body[]
+    }
+----
+
+To break down the above, what we're doing is:
+
+1. Create an opaque `buffer` object.
+2. Determine a `memory_type` that's compatible with our requirements.
+3. Allocate a big enough block of that memory.
+4. Bind the buffer_memory to the buffer, so the buffer knows where its contents are stored.
+
+Possibly the hardest part to understand is how the `memory_type` is selected. The GPU provides different heaps of memory with different performance characteristics. In the above code, we get a list of memory types, and also a `type_mask` from our buffer. The `type_mask` is a bit mask defining whether each item in the list of memory types is suitable for this buffer. The comments in https://github.com/mistodon/gfx-hal-tutorials/blob/master/src/bin/part-3-vertex-buffers.rs#L144[the code itself] may do a better job of explaining.
+
+With the `make_buffer` function defined, we can, um, make our buffer:
+
+[source,rust]
+----
+tag::make_vertex_buffer[]
+ifeval::[{sourcepart} == 3]
+    // The size of our vertex data is the number of vertices times
+    // the size of one `Vertex`.
+endif::[]
+    let vertex_buffer_len = mesh.len() * std::mem::size_of::<Vertex>();
+
+ifeval::[{sourcepart} == 3]
+    // We create a buffer, specifying that it should be used to store vertex
+    // data (hence the `Usage::VERTEX`) and that it should be visible to the
+    // CPU so we can load data into it (hence the `Properties::CPU_VISIBLE`).
+endif::[]
+    let (vertex_buffer_memory, vertex_buffer) = unsafe {
+        use gfx_hal::buffer::Usage;
+        use gfx_hal::memory::Properties;
+
+        make_buffer::<backend::Backend>(
+            &device,
+            &adapter.physical_device,
+            vertex_buffer_len,
+            Usage::VERTEX,
+            Properties::CPU_VISIBLE,
+        )
+    };
+end::make_vertex_buffer[]
+----
+
+We pass parameters to say that we want a `VERTEX` buffer, and that we want it to be `CPU_VISIBLE` so that we can write to it from our CPU-side Rust code.
+
+That last parameter is important, because the buffer we just created is currently empty. The next thing we have to do is fill it with our mesh data. We already have some memory allocated for the buffer, so we just have to copy the vertex data into it:
+
+[source,rust]
+----
+tag::vertex_buffer_upload[]
+    unsafe {
+        use gfx_hal::memory::Segment;
+
+ifeval::[{sourcepart} == 3]
+        // Mapping the buffer memory gives us a pointer directly to the
+        // contents of the buffer, which lets us easily copy data into it.
+        //
+        // We pass `Segment::ALL` to say that we want to map the *whole*
+        // buffer, as opposed to just part of it.
+endif::[]
+        let mapped_memory = device
+            .map_memory(&vertex_buffer_memory, Segment::ALL)
+            .expect("TODO");
+
+ifeval::[{sourcepart} == 3]
+        // Here we just copy `vertex_buffer_len` *from* the `mesh` data
+        // *to* to the `mapped_memory`.
+endif::[]
+        std::ptr::copy_nonoverlapping(mesh.as_ptr() as *const u8, mapped_memory, vertex_buffer_len);
+
+ifeval::[{sourcepart} == 3]
+        // Flushing the mapped memory ensures that the data we wrote to the
+        // memory actually makes it to the graphics device. The copy alone does
+        // not guarantee this.
+        //
+        // Again, we could supply multiple ranges (of multiple buffers even)
+        // but instead we just flush `ALL` of our single buffer.
+endif::[]
+        device
+            .flush_mapped_memory_ranges(vec![(&vertex_buffer_memory, Segment::ALL)])
+            .expect("TODO");
+
+        device.unmap_memory(&vertex_buffer_memory);
+    }
+end::vertex_buffer_upload[]
+----
+
+The first thing we do is map the buffer memory, which gives us a pointer to it. The benefit of that memory being CPU visible is that we can do this. Then we simply copy our deserialized mesh straight to that pointer, and flush the mapped memory to ensure it actually makes it to the GPU.
+
+So now we have an honest-to-god vertex buffer ready to read from. But it won't do us any good until we teach our pipeline how to interpret that data.
+
+To do that, we have to return to the `make_pipeline` function we wrote all the way back in https://www.falseidolfactory.com/2020/04/01/intro-to-gfx-hal-part-1-drawing-a-triangle.html#pipelines[Part 1] and extend it a little. Namely, we have to add a description of the vertex buffer to the pipeline description:
+
+[source,rust]
+----
+tag::pipeline_desc_vertex[]
+        // Vertex buffer description
+        {
+            use gfx_hal::format::Format;
+            use gfx_hal::pso::{AttributeDesc, Element, VertexBufferDesc, VertexInputRate};
+
+ifeval::[{sourcepart} == 3]
+            // We need to add a new section to our pipeline description so that
+            // it understands how to interpret the vertex data it is given.
+            //
+            // We start by giving it a `binding` number, which is more or less
+            // an ID or a slot for the vertex buffer. You'll see it used later.
+            //
+            // The `stride` is the size of one item in the buffer. The `rate`
+            // defines how to progress through the buffer. Passing `Vertex` to
+            // this tells it to advance after every vertex. This is usually
+            // what you want to do if you're not making use of instanced
+            // rendering.
+endif::[]
+            pipeline_desc.vertex_buffers.push(VertexBufferDesc {
+                binding: 0,
+                stride: std::mem::size_of::<Vertex>() as u32,
+                rate: VertexInputRate::Vertex,
+            });
+end::pipeline_desc_vertex[]
+
+            // ...
+----
+
+Note the `binding` number of `0`, which is sort-of an ID number for this particular kind of vertex buffer we're describing. That number will come up again in our rendering loop.
+
+But before that, we also need to add descriptions of the _attributes_ of this vertex buffer - namely the `position` and `normal` attributes:
+
+[source,rust]
+----
+            // ...
+
+tag::pipeline_desc_attributes[]
+ifeval::[{sourcepart} == 3]
+            // Now we need to define the attributes _within_ the vertices. For
+            // us this is the `position` and the `normal`.
+            // The vertex buffer we just defined has a `binding` number of `0`.
+            // The `location` refers to the location in the `layout` definition
+            // in the vertex shader.
+            //
+            // Finally the `element` describes the size and position of the
+            // attribute. Both of our elements are 3-component 32-bit float
+            // vectors, and so the `format` is `Rgb32Sfloat`. (I don't know why
+            // it's `Rgb` and not `Xyz` or `Vec3` but here we are.)
+            //
+            // Note that the second attribute has an offset of `12` bytes,
+            // because it has 3 4-byte floats before it (e.g. the previous
+            // attribute).
+endif::[]
+            pipeline_desc.attributes.push(AttributeDesc {
+                location: 0,
+                binding: 0,
+                element: Element {
+                    format: Format::Rgb32Sfloat,
+                    offset: 0,
+                },
+            });
+
+            pipeline_desc.attributes.push(AttributeDesc {
+                location: 1,
+                binding: 0,
+                element: Element {
+                    format: Format::Rgb32Sfloat,
+                    offset: 12,
+                },
+            });
+        }
+end::pipeline_desc_attributes[]
+----
+
+Note again the `binding` is `0`, because these attributes are specific to the same vertex buffer. The `location` parameters should match the ones in the vertex shader - so `0` for position, and `1` for normal.
+
+The `format` of both is `Rgb32Sfloat` (which is just a needlessly obtuse way of saying `vec3`), and the second one has a 12-byte `offset` (because the previous attribute is 12 bytes in size, the size of three `f32` values).
+
+With our vertex buffer created, and our pipeline definition extended, we now have everything we need to render a teapot. And you know what that means!
+
+That's right - more manual memory management!
+
+Because we created a buffer, and allocated memory for it - we want to make sure we clean those up at the end. Like we did in https://www.falseidolfactory.com/2020/04/01/intro-to-gfx-hal-part-1-drawing-a-triangle.html#memory-management[Part 1], we're going to add these two things to our `Resources` struct:
+
+[source,rust]
+----
+include::part-1-triangle.adoc[tag=resources_struct_start]
+
+        // Add these two fields:
+tag::resources_struct_vertex_buffer[]
+        vertex_buffer_memory: B::Memory,
+        vertex_buffer: B::Buffer,
+end::resources_struct_vertex_buffer[]
+include::part-1-triangle.adoc[tag=resources_struct_end]
+----
+
+And we also have to update the `drop` method of the `ResourceHolder` struct to delete the buffer and free its memory:
+
+[source,rust]
+----
+include::part-1-triangle.adoc[tag=resource_holder_struct_start]
+
+                    // And these:
+tag::resource_holder_struct_vertex_buffer_take[]
+                    vertex_buffer_memory,
+                    vertex_buffer,
+end::resource_holder_struct_vertex_buffer_take[]
+
+include::part-1-triangle.adoc[tag=resource_holder_struct_mid]
+
+                // And also this:
+tag::resource_holder_struct_vertex_buffer_destroy[]
+                device.free_memory(vertex_buffer_memory);
+                device.destroy_buffer(vertex_buffer);
+end::resource_holder_struct_vertex_buffer_destroy[]
+
+include::part-1-triangle.adoc[tag=resource_holder_struct_end]
+----
+
+Finally, when we _create_ our Resources struct, we need to supply the vertex buffer and its memory:
+
+[source,rust]
+----
+include::part-1-triangle.adoc[tag=resources_start]
+
+            // Don't forget these lines also:
+tag::resources_vertex_buffer[]
+            vertex_buffer_memory,
+            vertex_buffer,
+end::resources_vertex_buffer[]
+include::part-1-triangle.adoc[tag=resources_end]
+----
+
+Only now can we delve back into our rendering loop.
+
+Previously we defined a set of triangles to draw as a list of `PushConstants` structs. We're going to keep that strategy, but we changed the format of the `PushConstants` struct in our shader to include a transformation matrix.
+
+So we need to update the Rust equivalent to match it. We'll represent this 4x4 matrix with a 4x4 array-of-arrays:
+
+[source,rust]
+----
+tag::push_constants_struct[]
+ifndef::is_blog[]
+/// A struct representing the data that we want to supply in push constants.
+///
+/// The `repr(C)` attribute is required to ensure that the memory layout is
+/// what we expect. Without it, no specific layout is guaranteed.
+endif::is_blog[]
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+struct PushConstants {
+    transform: [[f32; 4]; 4],
+}
+end::push_constants_struct[]
+----
+
+Let's also define a helper function to create those matrices so we don't have to do it by hand every time:
+
+[source,rust]
+----
+tag::matrix_helper[]
+                /// Create a matrix that positions, scales, and rotates.
+                fn make_transform(translate: [f32; 3], angle: f32, scale: f32) -> [[f32; 4]; 4] {
+                    let c = angle.cos() * scale;
+                    let s = angle.sin() * scale;
+                    let [dx, dy, dz] = translate;
+
+                    [
+                        [c, 0., s, 0.],
+                        [0., scale, 0., 0.],
+                        [-s, 0., c, 0.],
+                        [dx, dy, dz, 1.],
+                    ]
+                }
+end::matrix_helper[]
+----
+
+If you're not familiar with matrix math, that's fine - for these tutorials, you can just take my word that this works.
+
+Let's next replace the list of triangles we had before with a "list" of one single teapot. We'll also use the elapsed time to animate an `angle` parameter. This should let us animate our teapot rotating:
+
+[source,rust]
+----
+                // This replaces `let triangles = ...`
+tag::push_constant_data[]
+                let angle = start_time.elapsed().as_secs_f32();
+
+                let teapots = &[PushConstants {
+                    transform: make_transform([0., 0., 0.5], angle, 1.0),
+                }];
+end::push_constant_data[]
+----
+
+Finally, the actually drawing stuff part. Just before we begin the render pass, we can bind the vertex buffer we want to render from:
+
+[source,rust]
+----
+tag::bind_vertex_buffer[]
+ifeval::[{sourcepart} == 3]
+                    // This sets which vertex buffers will be used to render
+                    // from. For now we're only going to bind one.
+                    //
+                    // The first number is the `binding` number we set in our
+                    // pipeline. The `Vec` we pass as the second parameter
+                    // contains which ranges of which buffers will be bound.
+                    // In our case, we bind the `WHOLE` buffer.
+endif::[]
+                    command_buffer.bind_vertex_buffers(
+                        0,
+                        vec![(&res.vertex_buffer, gfx_hal::buffer::SubRange::WHOLE)],
+                    );
+end::bind_vertex_buffer[]
+----
+
+We then have to replace the loop we used to draw our triangles with a new one, and we have to make sure we draw the full range of vertices in the buffer. For the triangles, we always used `0..3`, but here, we want to use the number of vertices in the mesh:
+
+[source,rust]
+----
+                    // This replaces `for triangle in triangles { ... }`
+tag::draw_call[]
+                    for teapot in teapots {
+                        use gfx_hal::pso::ShaderStageFlags;
+
+                        command_buffer.push_graphics_constants(
+                            pipeline_layout,
+                            ShaderStageFlags::VERTEX,
+                            0,
+                            push_constant_bytes(teapot),
+                        );
+
+ifeval::[{sourcepart} == 3]
+                        // This is the number of vertices in the whole teapot.
+endif::[]
+                        let vertex_count = mesh.len() as u32;
+                        command_buffer.draw(0..vertex_count, 0..1);
+                    }
+end::draw_call[]
+----
+
+And with that, we are finished!
+
+Behold, like the background of a particularly underwhelming PlayStation demo disc - one multicolor teapot:
