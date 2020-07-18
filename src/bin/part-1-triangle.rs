@@ -154,14 +154,14 @@ fn main() {
 
         let supported_formats = surface
             .supported_formats(&adapter.physical_device)
-            .unwrap_or(vec![]);
-
-        let default_format = *supported_formats.get(0).unwrap_or(&Format::Rgba8Srgb);
+            .unwrap_or_else(|| vec![]);
 
         supported_formats
-            .into_iter()
+            .iter()
             .find(|format| format.base_format().1 == ChannelType::Srgb)
-            .unwrap_or(default_format)
+            .or_else(|| supported_formats.get(0))
+            .unwrap_or(&Format::Rgba8Srgb)
+            .to_owned()
     };
 
     // A render pass defines which attachments (images) are to be used for
