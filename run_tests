@@ -1,0 +1,13 @@
+#!/bin/bash
+
+set -e
+
+if [[ -n "$1" ]]; then
+    ./generate_sources
+    cargo check --bin $1
+    rustfmt src/bin/$1.rs --check
+else
+    ./generate_sources
+    cargo check --bins
+    cargo fmt -- --check
+fi

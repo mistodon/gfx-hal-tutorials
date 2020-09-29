@@ -1,0 +1,8 @@
+#!/bin/bash
+
+set -e
+
+asciidoctor --destination-dir . doc/toml/Cargo.adoc
+asciidoctor --destination-dir src/bin doc/rs/*.adoc
+asciidoctor --destination-dir src/bin/shaders doc/shaders/*.adoc
+for rs_file in $(ls src/bin/part*.rs); do echo >> $rs_file; done
