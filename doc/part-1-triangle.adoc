@@ -61,7 +61,7 @@ tag::cargo_toml[]
 name = "gfx-hal-tutorials"
 version = "0.1.0"
 ifndef::is_blog[]
-authors = ["***Realname*** ***Lastname*** <***redacted.email@redacted.nope***>"]
+authors = ["Vi <violet@hey.com>"]
 endif::is_blog[]
 edition = "2018"
 license = "CC0-1.0"

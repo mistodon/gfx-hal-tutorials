@@ -1,7 +1,7 @@
 [package]
 name = "gfx-hal-tutorials"
 version = "0.1.0"
-authors = ["***Realname*** ***Lastname*** <***redacted.email@redacted.nope***>"]
+authors = ["Vi <violet@hey.com>"]
 edition = "2018"
 license = "CC0-1.0"
 
