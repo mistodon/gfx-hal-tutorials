@@ -1,4 +1,5 @@
 fn main() {
+    use std::iter;
     use std::mem::ManuallyDrop;
 
     use gfx_hal::{
@@ -10,6 +11,10 @@ fn main() {
 
     const APP_NAME: &'static str = "Part 1: Drawing a triangle";
     const WINDOW_SIZE: [u32; 2] = [512, 512];
+    const DIMS: gfx_hal::window::Extent2D = gfx_hal::window::Extent2D {
+        width: 512,
+        height: 512,
+    };
 
     // Any `winit` application starts with an event loop. You need one of these
     // to create a window.
@@ -222,14 +227,18 @@ fn main() {
             // The third parameter is for expressing `dependencies` between
             // subpasses, which we don't need.
             device
-                .create_render_pass(&[color_attachment], &[subpass], &[])
+                .create_render_pass(
+                    iter::once(color_attachment),
+                    iter::once(subpass),
+                    iter::empty(),
+                )
                 .expect("Out of memory")
         }
     };
 
     let pipeline_layout = unsafe {
         device
-            .create_pipeline_layout(&[], &[])
+            .create_pipeline_layout(iter::empty(), iter::empty())
             .expect("Out of memory")
     };
 
@@ -524,7 +533,7 @@ fn main() {
 
                     // Once the fence has been signalled, we must reset it
                     res.device
-                        .reset_fence(&res.submission_complete_fence)
+                        .reset_fence(&mut res.submission_complete_fence)
                         .expect("Out of memory");
 
                     // This clears out the previous frame's command buffer and
@@ -598,14 +607,18 @@ fn main() {
                 // In practice, there may be no difference in our case, but
                 // it's somthing to be aware of.
                 let framebuffer = unsafe {
-                    use std::borrow::Borrow;
-
                     use gfx_hal::image::Extent;
+                    use gfx_hal::window;
+
+                    let caps = res.surface.capabilities(&adapter.physical_device);
+                    let swap_config =
+                        window::SwapchainConfig::from_caps(&caps, surface_color_format, DIMS);
+                    let fat = swap_config.framebuffer_attachment();
 
                     res.device
                         .create_framebuffer(
                             render_pass,
-                            vec![surface_image.borrow()],
+                            iter::once(fat),
                             Extent {
                                 width: surface_extent.width,
                                 height: surface_extent.height,
@@ -634,8 +647,10 @@ fn main() {
 
                 unsafe {
                     use gfx_hal::command::{
-                        ClearColor, ClearValue, CommandBuffer, CommandBufferFlags, SubpassContents,
+                        ClearColor, ClearValue, CommandBuffer, CommandBufferFlags,
+                        RenderAttachmentInfo, SubpassContents,
                     };
+                    use std::borrow::Borrow;
 
                     // This is how we start our command buffer. We set a
                     // flag telling it we're only going to submit it once,
@@ -646,8 +661,8 @@ fn main() {
                     // we are drawing into. Changing the viewport will stretch
                     // the resulting image into that rect. Changing the scissor
                     // will crop it.
-                    command_buffer.set_viewports(0, &[viewport.clone()]);
-                    command_buffer.set_scissors(0, &[viewport.rect]);
+                    command_buffer.set_viewports(0, iter::once(viewport.clone()));
+                    command_buffer.set_scissors(0, iter::once(viewport.rect));
 
                     // Here we say which render pass we're in. This
                     // defines which framebuffer (images) we'll draw to, and
@@ -657,11 +672,14 @@ fn main() {
                         render_pass,
                         &framebuffer,
                         viewport.rect,
-                        &[ClearValue {
-                            color: ClearColor {
-                                float32: [0.0, 0.0, 0.0, 1.0],
+                        iter::once(RenderAttachmentInfo {
+                            image_view: surface_image.borrow(),
+                            clear_value: ClearValue {
+                                color: ClearColor {
+                                    float32: [0.0, 0.0, 0.0, 1.0],
+                                },
                             },
-                        }],
+                        }),
                         SubpassContents::Inline,
                     );
 
@@ -688,7 +706,7 @@ fn main() {
                 }
 
                 unsafe {
-                    use gfx_hal::queue::{CommandQueue, Submission};
+                    use gfx_hal::queue::CommandQueue;
 
                     // A `Submission` contains references to the command
                     // buffers to submit, and also any semaphores used for
@@ -700,11 +718,6 @@ fn main() {
                     //
                     // In our case though, all we want to do is tell
                     // `rendering_complete_semaphore` when we're done.
-                    let submission = Submission {
-                        command_buffers: vec![&command_buffer],
-                        wait_semaphores: None,
-                        signal_semaphores: vec![&res.rendering_complete_semaphore],
-                    };
 
                     // Commands must be submitted to an appropriate queue. We
                     // requested a graphics queue, and so we are submitting
@@ -714,7 +727,12 @@ fn main() {
                     // `submission_complete_fence` when the submission is
                     // complete, at which point we can reclaim the command
                     // buffer we used for next frame.
-                    queue_group.queues[0].submit(submission, Some(&res.submission_complete_fence));
+                    queue_group.queues[0].submit(
+                        iter::once(&command_buffer),
+                        iter::empty(),
+                        iter::once(&res.rendering_complete_semaphore),
+                        Some(&mut res.submission_complete_fence),
+                    );
 
                     // Finally, the `present` takes the output of our
                     // rendering and displays it onscreen. We pass the
@@ -723,7 +741,7 @@ fn main() {
                     let result = queue_group.queues[0].present(
                         &mut res.surface,
                         surface_image,
-                        Some(&res.rendering_complete_semaphore),
+                        Some(&mut res.rendering_complete_semaphore),
                     );
 
                     // If presenting failed, it could be a problem with the

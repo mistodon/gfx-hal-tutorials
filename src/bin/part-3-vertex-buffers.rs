@@ -20,17 +20,22 @@ struct Vertex {
 }
 
 fn main() {
+    use std::iter;
     use std::mem::ManuallyDrop;
 
     use gfx_hal::{
         device::Device,
-        window::{Extent2D, PresentationSurface, Surface},
+        window::{self, Extent2D, PresentationSurface, Surface},
         Instance,
     };
     use shaderc::ShaderKind;
 
     const APP_NAME: &'static str = "Part 3: Vertex buffers";
     const WINDOW_SIZE: [u32; 2] = [512, 512];
+    const DIMS: gfx_hal::window::Extent2D = gfx_hal::window::Extent2D {
+        width: 512,
+        height: 512,
+    };
 
     let event_loop = winit::event_loop::EventLoop::new();
 
@@ -202,7 +207,7 @@ fn main() {
     // We create a buffer, specifying that it should be used to store vertex
     // data (hence the `Usage::VERTEX`) and that it should be visible to the
     // CPU so we can load data into it (hence the `Properties::CPU_VISIBLE`).
-    let (vertex_buffer_memory, vertex_buffer) = unsafe {
+    let (mut vertex_buffer_memory, vertex_buffer) = unsafe {
         use gfx_hal::buffer::Usage;
         use gfx_hal::memory::Properties;
 
@@ -224,7 +229,7 @@ fn main() {
         // We pass `Segment::ALL` to say that we want to map the *whole*
         // buffer, as opposed to just part of it.
         let mapped_memory = device
-            .map_memory(&vertex_buffer_memory, Segment::ALL)
+            .map_memory(&mut vertex_buffer_memory, Segment::ALL)
             .expect("Failed to map memory");
 
         // Here we just copy `vertex_buffer_len` *from* the `mesh` data
@@ -238,10 +243,10 @@ fn main() {
         // Again, we could supply multiple ranges (of multiple buffers even)
         // but instead we just flush `ALL` of our single buffer.
         device
-            .flush_mapped_memory_ranges(vec![(&vertex_buffer_memory, Segment::ALL)])
+            .flush_mapped_memory_ranges(iter::once((&vertex_buffer_memory, Segment::ALL)))
             .expect("Out of memory");
 
-        device.unmap_memory(&vertex_buffer_memory);
+        device.unmap_memory(&mut vertex_buffer_memory);
     }
 
     let render_pass = {
@@ -268,7 +273,11 @@ fn main() {
 
         unsafe {
             device
-                .create_render_pass(&[color_attachment], &[subpass], &[])
+                .create_render_pass(
+                    iter::once(color_attachment),
+                    iter::once(subpass),
+                    iter::empty(),
+                )
                 .expect("Out of memory")
         }
     };
@@ -279,7 +288,10 @@ fn main() {
         let push_constant_bytes = std::mem::size_of::<PushConstants>() as u32;
 
         device
-            .create_pipeline_layout(&[], &[(ShaderStageFlags::VERTEX, 0..push_constant_bytes)])
+            .create_pipeline_layout(
+                iter::empty(),
+                iter::once((ShaderStageFlags::VERTEX, 0..push_constant_bytes)),
+            )
             .expect("Out of memory")
     };
 
@@ -428,7 +440,7 @@ fn main() {
         device.destroy_shader_module(fragment_shader_module);
 
         pipeline
-    };
+    }
 
     let pipeline = unsafe {
         make_pipeline::<backend::Backend>(
@@ -556,7 +568,7 @@ fn main() {
                         .expect("Out of memory or device lost");
 
                     res.device
-                        .reset_fence(&res.submission_complete_fence)
+                        .reset_fence(&mut res.submission_complete_fence)
                         .expect("Out of memory");
 
                     res.command_pool.reset(false);
@@ -600,14 +612,17 @@ fn main() {
                 };
 
                 let framebuffer = unsafe {
-                    use std::borrow::Borrow;
-
                     use gfx_hal::image::Extent;
+
+                    let caps = res.surface.capabilities(&adapter.physical_device);
+                    let swap_config =
+                        window::SwapchainConfig::from_caps(&caps, surface_color_format, DIMS);
+                    let fat = swap_config.framebuffer_attachment();
 
                     res.device
                         .create_framebuffer(
                             render_pass,
-                            vec![surface_image.borrow()],
+                            iter::once(fat),
                             Extent {
                                 width: surface_extent.width,
                                 height: surface_extent.height,
@@ -665,13 +680,15 @@ fn main() {
 
                 unsafe {
                     use gfx_hal::command::{
-                        ClearColor, ClearValue, CommandBuffer, CommandBufferFlags, SubpassContents,
+                        ClearColor, ClearValue, CommandBuffer, CommandBufferFlags,
+                        RenderAttachmentInfo, SubpassContents,
                     };
+                    use std::borrow::Borrow;
 
                     command_buffer.begin_primary(CommandBufferFlags::ONE_TIME_SUBMIT);
 
-                    command_buffer.set_viewports(0, &[viewport.clone()]);
-                    command_buffer.set_scissors(0, &[viewport.rect]);
+                    command_buffer.set_viewports(0, iter::once(viewport.clone()));
+                    command_buffer.set_scissors(0, iter::once(viewport.rect));
 
                     // This sets which vertex buffers will be used to render
                     // from. For now we're only going to bind one.
@@ -682,18 +699,21 @@ fn main() {
                     // In our case, we bind the `WHOLE` buffer.
                     command_buffer.bind_vertex_buffers(
                         0,
-                        vec![(&res.vertex_buffer, gfx_hal::buffer::SubRange::WHOLE)],
+                        iter::once((&res.vertex_buffer, gfx_hal::buffer::SubRange::WHOLE)),
                     );
 
                     command_buffer.begin_render_pass(
                         render_pass,
                         &framebuffer,
                         viewport.rect,
-                        &[ClearValue {
-                            color: ClearColor {
-                                float32: [0.0, 0.0, 0.0, 1.0],
+                        iter::once(RenderAttachmentInfo {
+                            image_view: surface_image.borrow(),
+                            clear_value: ClearValue {
+                                color: ClearColor {
+                                    float32: [0.0, 0.0, 0.0, 1.0],
+                                },
                             },
-                        }],
+                        }),
                         SubpassContents::Inline,
                     );
 
@@ -719,20 +739,19 @@ fn main() {
                 }
 
                 unsafe {
-                    use gfx_hal::queue::{CommandQueue, Submission};
+                    use gfx_hal::queue::CommandQueue;
 
-                    let submission = Submission {
-                        command_buffers: vec![&command_buffer],
-                        wait_semaphores: None,
-                        signal_semaphores: vec![&res.rendering_complete_semaphore],
-                    };
-
-                    queue_group.queues[0].submit(submission, Some(&res.submission_complete_fence));
+                    queue_group.queues[0].submit(
+                        iter::once(&command_buffer),
+                        iter::empty(),
+                        iter::once(&res.rendering_complete_semaphore),
+                        Some(&mut res.submission_complete_fence),
+                    );
 
                     let result = queue_group.queues[0].present(
                         &mut res.surface,
                         surface_image,
-                        Some(&res.rendering_complete_semaphore),
+                        Some(&mut res.rendering_complete_semaphore),
                     );
 
                     should_configure_swapchain |= result.is_err();
