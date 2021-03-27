@@ -34,7 +34,11 @@ fn main() {
     let (logical_window_size, physical_window_size) = {
         use winit::dpi::{LogicalSize, PhysicalSize};
 
-        let dpi = event_loop.primary_monitor().scale_factor();
+        let dpi = event_loop
+            .primary_monitor()
+            .or_else(|| event_loop.available_monitors().next())
+            .expect("No primary monitor")
+            .scale_factor();
         let logical: LogicalSize<u32> = WINDOW_SIZE.into();
         let physical: PhysicalSize<u32> = logical.to_physical(dpi);
 
