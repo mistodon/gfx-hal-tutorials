@@ -11,10 +11,12 @@ struct PushConstants {
 }
 
 fn main() {
+    use std::iter;
     use std::mem::ManuallyDrop;
 
     use gfx_hal::{
         device::Device,
+        window,
         window::{Extent2D, PresentationSurface, Surface},
         Instance,
     };
@@ -22,13 +24,21 @@ fn main() {
 
     const APP_NAME: &'static str = "Part 2: Push constants";
     const WINDOW_SIZE: [u32; 2] = [512, 512];
+    const DIMS: gfx_hal::window::Extent2D = gfx_hal::window::Extent2D {
+        width: 512,
+        height: 512,
+    };
 
     let event_loop = winit::event_loop::EventLoop::new();
 
     let (logical_window_size, physical_window_size) = {
         use winit::dpi::{LogicalSize, PhysicalSize};
 
-        let dpi = event_loop.primary_monitor().scale_factor();
+        let dpi = event_loop
+            .primary_monitor()
+            .or_else(|| event_loop.available_monitors().next())
+            .expect("No primary monitor")
+            .scale_factor();
         let logical: LogicalSize<u32> = WINDOW_SIZE.into();
         let physical: PhysicalSize<u32> = logical.to_physical(dpi);
 
@@ -135,7 +145,11 @@ fn main() {
 
         unsafe {
             device
-                .create_render_pass(&[color_attachment], &[subpass], &[])
+                .create_render_pass(
+                    iter::once(color_attachment),
+                    iter::once(subpass),
+                    iter::empty(),
+                )
                 .expect("Out of memory")
         }
     };
@@ -153,7 +167,10 @@ fn main() {
         // but here we can start at zero since there's no data before our
         // struct.
         device
-            .create_pipeline_layout(&[], &[(ShaderStageFlags::VERTEX, 0..push_constant_bytes)])
+            .create_pipeline_layout(
+                iter::empty(),
+                iter::once((ShaderStageFlags::VERTEX, 0..push_constant_bytes)),
+            )
             .expect("Out of memory")
     };
 
@@ -247,7 +264,7 @@ fn main() {
         device.destroy_shader_module(fragment_shader_module);
 
         pipeline
-    };
+    }
 
     let pipeline = unsafe {
         make_pipeline::<backend::Backend>(
@@ -368,7 +385,7 @@ fn main() {
                         .expect("Out of memory or device lost");
 
                     res.device
-                        .reset_fence(&res.submission_complete_fence)
+                        .reset_fence(&mut res.submission_complete_fence)
                         .expect("Out of memory");
 
                     res.command_pool.reset(false);
@@ -412,14 +429,17 @@ fn main() {
                 };
 
                 let framebuffer = unsafe {
-                    use std::borrow::Borrow;
-
                     use gfx_hal::image::Extent;
+
+                    let caps = res.surface.capabilities(&adapter.physical_device);
+                    let swap_config =
+                        window::SwapchainConfig::from_caps(&caps, surface_color_format, DIMS);
+                    let fat = swap_config.framebuffer_attachment();
 
                     res.device
                         .create_framebuffer(
                             render_pass,
-                            vec![surface_image.borrow()],
+                            iter::once(fat),
                             Extent {
                                 width: surface_extent.width,
                                 height: surface_extent.height,
@@ -506,23 +526,28 @@ fn main() {
 
                 unsafe {
                     use gfx_hal::command::{
-                        ClearColor, ClearValue, CommandBuffer, CommandBufferFlags, SubpassContents,
+                        ClearColor, ClearValue, CommandBuffer, CommandBufferFlags,
+                        RenderAttachmentInfo, SubpassContents,
                     };
+                    use std::borrow::Borrow;
 
                     command_buffer.begin_primary(CommandBufferFlags::ONE_TIME_SUBMIT);
 
-                    command_buffer.set_viewports(0, &[viewport.clone()]);
-                    command_buffer.set_scissors(0, &[viewport.rect]);
+                    command_buffer.set_viewports(0, iter::once(viewport.clone()));
+                    command_buffer.set_scissors(0, iter::once(viewport.rect));
 
                     command_buffer.begin_render_pass(
                         render_pass,
                         &framebuffer,
                         viewport.rect,
-                        &[ClearValue {
-                            color: ClearColor {
-                                float32: [0.0, 0.0, 0.0, 1.0],
+                        iter::once(RenderAttachmentInfo {
+                            image_view: surface_image.borrow(),
+                            clear_value: ClearValue {
+                                color: ClearColor {
+                                    float32: [0.0, 0.0, 0.0, 1.0],
+                                },
                             },
-                        }],
+                        }),
                         SubpassContents::Inline,
                     );
 
@@ -549,20 +574,19 @@ fn main() {
                 }
 
                 unsafe {
-                    use gfx_hal::queue::{CommandQueue, Submission};
+                    use gfx_hal::queue::CommandQueue;
 
-                    let submission = Submission {
-                        command_buffers: vec![&command_buffer],
-                        wait_semaphores: None,
-                        signal_semaphores: vec![&res.rendering_complete_semaphore],
-                    };
-
-                    queue_group.queues[0].submit(submission, Some(&res.submission_complete_fence));
+                    queue_group.queues[0].submit(
+                        iter::once(&command_buffer),
+                        iter::empty(),
+                        iter::once(&res.rendering_complete_semaphore),
+                        Some(&mut res.submission_complete_fence),
+                    );
 
                     let result = queue_group.queues[0].present(
                         &mut res.surface,
                         surface_image,
-                        Some(&res.rendering_complete_semaphore),
+                        Some(&mut res.rendering_complete_semaphore),
                     );
 
                     should_configure_swapchain |= result.is_err();
