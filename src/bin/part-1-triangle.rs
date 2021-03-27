@@ -359,7 +359,7 @@ fn main() {
         device.destroy_shader_module(fragment_shader_module);
 
         pipeline
-    };
+    }
 
     let pipeline = unsafe {
         make_pipeline::<backend::Backend>(
